@@ -1,0 +1,11 @@
+﻿  Microsoft (R) Macro Assembler Version 14.00.24210.0
+  Copyright (C) Microsoft Corporation.  All rights reserved.
+  
+   Assembling: match686.asm
+  Microsoft (R) Macro Assembler Version 14.00.24210.0
+  Copyright (C) Microsoft Corporation.  All rights reserved.
+  
+   Assembling: inffas32.asm
+     Creating library x86\ZlibDllDebug\zlibwapi.lib and object x86\ZlibDllDebug\zlibwapi.exp
+  zlibvc.vcxproj -> F:\playground\assassin-playground\ctsvetkov\minh_nguyen\zlibCompression\zlib-1.2.8\contrib\vstudio\vc11\x86\ZlibDllDebug\zlibwapi.dll
+  zlibvc.vcxproj -> x86\ZlibDllDebug\zlibwapi.pdb (Full PDB)
