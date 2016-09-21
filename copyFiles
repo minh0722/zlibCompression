@@ -1,0 +1,6 @@
+#!/bin/bash
+
+FOLDER=F:/playground/assassin-playground/ctsvetkov/minh_nguyen/zlibCompression/zlibCompression
+
+cp $FOLDER/*.h .
+cp $FOLDER/*.cpp .
