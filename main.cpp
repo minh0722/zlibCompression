@@ -66,13 +66,14 @@ void throwIfFailed(int ret)
 
 
 
-const uint32_t TEST_MAP_CHUNK_SIZE = 10 * sizeof(Creation::Coord);
+static const uint32_t TEST_MAP_CHUNK_SIZE = 10 * sizeof(Creation::Coord);
 
 OFSTRUCT ofstruct;
 HANDLE inputFile = reinterpret_cast<HANDLE>(OpenFile(TEST_FILE, &ofstruct, OF_READ));
 HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
 LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, TEST_MAP_CHUNK_SIZE);
 
+static const char* COMPRESSED_FILE = "testCompressed.bin";
 
 void compress1()
 {
@@ -124,7 +125,7 @@ void compress1()
     }
 
     FILE* compressedFile;
-    fopen_s(&compressedFile, "testCompressed.bin", "w");
+    fopen_s(&compressedFile, COMPRESSED_FILE, "w");
 
     fwrite(output, sizeof(uint8_t), stream.total_out, compressedFile);
     fclose(compressedFile);
