@@ -102,18 +102,20 @@ void compress1()
     stream.next_out = output;
     for (int i = 0; i < chunksCount; ++i)
     {
+        stream.avail_in = CHUNK_SIZE;
+        stream.next_in = input + i * CHUNK_SIZE;
+
+        flush = Z_NO_FLUSH;
+
+        if (i == chunksCount - 1)
+        {
+            flush = Z_FINISH;
+        }
+
         do
         {
-            stream.avail_in = CHUNK_SIZE;
-            stream.next_in = input + i * CHUNK_SIZE;
             stream.avail_out = CHUNK_SIZE;
             stream.next_out = output + stream.total_out;
-            flush = Z_NO_FLUSH;
-
-            if (i == chunksCount - 1)
-            {
-                flush = Z_FINISH;
-            }
 
             ret = deflate(&stream, flush);
             assert(ret != Z_STREAM_ERROR);
