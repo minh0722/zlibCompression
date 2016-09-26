@@ -66,9 +66,9 @@ void throwIfFailed(int ret)
         throw std::exception();
 }
 
-void throwIfFailed(bool ret)
+void throwIfFalse(bool flag)
 {
-    if (!ret)
+    if (!flag)
         throw std::exception();
 }
 
@@ -216,16 +216,23 @@ struct Chunk
         void operator()(void* ptr)
         {
             BOOL ret = VirtualFree(ptr, 0, MEM_RELEASE);
-            throwIfFailed(ret);
+            throwIfFalse(ret);
         }
     };
 
-    Chunk(uint32_t pageSize) : m_memory(VirtualAlloc(nullptr, pageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE), Deleter()) 
+    Chunk(uint32_t pageSize) : m_memory(VirtualAlloc(nullptr, pageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE), Deleter()) ,
+        chunkSize(pageSize)
+    {
+    }
+
+    Chunk(void* m, uint32_t pageSize) : m_memory(m, Deleter()), chunkSize(pageSize) 
     {
     }
 
     std::unique_ptr<void, Deleter> m_memory;
+    size_t chunkSize;
 };
+
 
 uint32_t compress(void* source, void* dest, size_t sourceBytesCount)
 {
@@ -352,9 +359,19 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
 
     concurrency::parallel_for(size_t(0), chunks.size(), [&chunks, &result](size_t i)
     {
+        unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
 
+        uint32_t compressedSize = compress(chunks[i]->m_memory.get(), mem.get(), PAGE_SIZE);
+
+        result[i] = std::make_unique<Chunk>(mem.release(), compressedSize);
     });
     
+    return result;
+}
+
+std::vector<std::unique_ptr<Chunk>> decompressChunks(std::vector<std::unique_ptr<Chunk>>&& chunks)
+{
+
 }
 
 int main()
@@ -369,7 +386,7 @@ int main()
 
 
     std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), 2);
-
+    std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
 
 
     UnmapViewOfFile(mapFile);
