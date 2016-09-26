@@ -195,7 +195,7 @@ void decompress1()
     }
 
     DWORD bytesWritten;
-    bool writeFlag = WriteFile(outputFile, output, stream.total_out, &bytesWritten, nullptr);
+    BOOL writeFlag = WriteFile(outputFile, output, stream.total_out, &bytesWritten, nullptr);
     assert(writeFlag != false);
 
     (void)inflateEnd(&stream);
@@ -215,7 +215,7 @@ struct Chunk
     {
         void operator()(void* ptr)
         {
-            bool ret = VirtualFree(ptr, 0, MEM_RELEASE);
+            BOOL ret = VirtualFree(ptr, 0, MEM_RELEASE);
             throwIfFailed(ret);
         }
     };
@@ -227,11 +227,12 @@ struct Chunk
     std::unique_ptr<void, Deleter> m_memory;
 };
 
-void compress(void* source, void* dest, size_t sourceBytesCount)
+uint32_t compress(void* source, void* dest, size_t sourceBytesCount)
 {
     int ret, flush;
     unsigned have;
     z_stream stream;
+    void* currentDest = dest;
 
     uint8_t output[PAGE_SIZE];
 
@@ -257,21 +258,26 @@ void compress(void* source, void* dest, size_t sourceBytesCount)
         have = PAGE_SIZE - stream.avail_out;
 
         /// copy the output to dest
-        memcpy(dest, output, have);
-        dest = reinterpret_cast<uint8_t*>(dest) + have;
+        memcpy(currentDest, output, have);
+        currentDest = reinterpret_cast<uint8_t*>(currentDest) + have;
 
     } while (stream.avail_out == 0);
 
     assert(ret == Z_STREAM_END);
 
     (void)deflateEnd(&stream);
+
+    /// return the size of the compressed data
+    uint32_t compressedSize = reinterpret_cast<uint8_t*>(currentDest) - reinterpret_cast<uint8_t*>(dest);
+    return compressedSize;
 }
 
-void decompress(void* source, void* dest, size_t sourceBytesCount)
+uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
 {
     int ret;
     unsigned have;
     z_stream stream;
+    void* currentDest = dest;
 
     uint8_t output[PAGE_SIZE];
 
@@ -308,21 +314,24 @@ void decompress(void* source, void* dest, size_t sourceBytesCount)
         }
 
         have = PAGE_SIZE - stream.avail_out;
-        memcpy(dest, output, have);
-        dest = reinterpret_cast<uint8_t*>(dest) + have;
+        memcpy(currentDest, output, have);
+        currentDest = reinterpret_cast<uint8_t*>(currentDest) + have;
 
     } while (stream.avail_out == 0);
 
     (void)inflateEnd(&stream);
 
     assert(ret == Z_STREAM_END);
+
+    uint32_t compressedSize = reinterpret_cast<uint8_t*>(currentDest) - reinterpret_cast<uint8_t*>(dest);
+    return compressedSize;
 }
 
 std::vector<std::unique_ptr<Chunk>> splitFiles(uint8_t* fileContent, uint32_t pageCount)
 {
     std::vector<std::unique_ptr<Chunk>> result;
 
-    for (int i = 0; i < pageCount; ++i)
+    for (size_t i = 0; i < pageCount; ++i)
     {
         result.emplace_back(std::make_unique<Chunk>(PAGE_SIZE));
     }
@@ -334,6 +343,18 @@ std::vector<std::unique_ptr<Chunk>> splitFiles(uint8_t* fileContent, uint32_t pa
     });
 
     return result;
+}
+
+std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<Chunk>>&& chunks)
+{
+    vector<std::unique_ptr<Chunk>> result;
+    result.resize(chunks.size());
+
+    concurrency::parallel_for(size_t(0), chunks.size(), [&chunks, &result](size_t i)
+    {
+
+    });
+    
 }
 
 int main()
@@ -352,8 +373,8 @@ int main()
 
 
     UnmapViewOfFile(mapFile);
+    CloseHandle(fileMap);
     CloseHandle(inputFile);
-    CloseHandle(mapFile);
     
     return 0;
 }
