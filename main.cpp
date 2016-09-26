@@ -320,7 +320,10 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
             break;
         }
 
+        // TODO: fix here crash when avail_out is 0
         have = PAGE_SIZE - stream.avail_out;
+        assert(have != 0);
+
         memcpy(currentDest, output, have);
         currentDest = reinterpret_cast<uint8_t*>(currentDest) + have;
 
@@ -369,9 +372,23 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
     return result;
 }
 
-std::vector<std::unique_ptr<Chunk>> decompressChunks(std::vector<std::unique_ptr<Chunk>>&& chunks)
+std::vector<std::unique_ptr<Chunk>> decompressChunks(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
+    vector<std::unique_ptr<Chunk>> result;
+    result.resize(compressedChunks.size());
 
+    concurrency::parallel_for(size_t(0), compressedChunks.size(), [&compressedChunks, &result](size_t i)
+    {
+        uint32_t chunkSize = compressedChunks[i]->chunkSize;
+
+        unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, chunkSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
+
+        uint32_t compressedSize = decompress(compressedChunks[i]->m_memory.get(), mem.get(), chunkSize);
+
+        result[i] = std::make_unique<Chunk>(mem.release(), compressedSize);
+    });
+
+    return result;
 }
 
 int main()
@@ -387,7 +404,7 @@ int main()
 
     std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), 2);
     std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
-
+    std::vector<std::unique_ptr<Chunk>> decompressedChunks = decompressChunks(std::move(compressedChunks));
 
     UnmapViewOfFile(mapFile);
     CloseHandle(fileMap);
