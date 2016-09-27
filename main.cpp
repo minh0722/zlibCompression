@@ -6,8 +6,18 @@
 #include <vector>
 #include <ppl.h>
 #include <Windows.h>
+#include <chrono>
 #include "zlib.h"
 using namespace std;
+using namespace std::chrono;
+
+#define CHRONO_BEGIN \
+    auto t1 = high_resolution_clock::now();
+
+#define CHRONO_END \
+    auto t2 = high_resolution_clock::now(); \
+    auto duration = duration_cast<milliseconds>(t2 - t1).count(); \
+    cout << "Time: " << duration << " milliseconds" << endl;
 
 struct Coord
 {
@@ -25,7 +35,7 @@ struct Coord
 
 uint32_t Coord::count = 0;
 
-static const char* BIG_FILE_PATH = "bigFile.bin";
+static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
 static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.bin";
 static const size_t PAGE_SIZE = 64 * 1024;
 
@@ -51,7 +61,7 @@ void throwIfFalse(bool flag)
 void createFile()
 {
     FILE* file;
-    fopen_s(&file, BIG_FILE_PATH, "a+b");
+    fopen_s(&file, reinterpret_cast<const char*>(BIG_FILE_PATH), "a+b");
 
     Coord* c = new Coord[10000];
 
@@ -156,7 +166,7 @@ void decompress1()
         FILE_ATTRIBUTE_NORMAL,          /// normal file
         nullptr);                      /// no attr. template
 
-    if (!mapFile || !outputFile)
+    if (!mapFile || outputFile != INVALID_HANDLE_VALUE)
         throw std::exception();
 
     int ret;
@@ -396,55 +406,113 @@ void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compresse
 {
     HANDLE outputFile = CreateFile(
         COMPRESSED_BIG_FILE,
-        GENERIC_READ | GENERIC_WRITE,
+        FILE_APPEND_DATA,
         0,
         nullptr,
         OPEN_ALWAYS,                    /// open file if exist, else create new
         FILE_ATTRIBUTE_NORMAL,
         nullptr);
 
-    SetEndOfFile(outputFile);           /// write from the end of the file
 
     for (size_t i = 0; i < compressedChunks.size(); ++i)
     {
+        //BOOL ret = SetEndOfFile(outputFile);           /// write from the end of the file
+        //assert(ret != 0);
 
         uint8_t* chunkMem = reinterpret_cast<uint8_t*>(compressedChunks[i]->m_memory.get());
         size_t size = compressedChunks[i]->chunkSize;
 
-        BOOL ret = WriteFile(outputFile, chunkMem, size, nullptr, nullptr);
+        DWORD written;
+        BOOL ret = WriteFile(outputFile, chunkMem, size, &written, nullptr);
         assert(ret == TRUE);
     }
+
+    SetFilePointerEx(outputFile, {0}, nullptr, FILE_CURRENT);
+    CloseHandle(outputFile);
+}
+
+size_t getTotalCompressionSize(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
+{
+    size_t sum = 0;
+    for (size_t i = 0; i < compressedChunks.size(); ++i)
+    {
+        sum += compressedChunks[i]->chunkSize;
+    }
+
+    return sum;
 }
 
 int main()
 {
-    //compress1();
-    //decompress1();
+    HANDLE bigFile = CreateFile(
+        BIG_FILE_PATH,
+        GENERIC_READ,
+        0,
+        nullptr,
+        OPEN_ALWAYS,            /// open file if exist, else create new
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    assert(bigFile != INVALID_HANDLE_VALUE);
 
-    OFSTRUCT ofstruct;
-    HANDLE inputFile = reinterpret_cast<HANDLE>(OpenFile(BIG_FILE_PATH, &ofstruct, OF_READ));
-    HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, PAGE_SIZE * 10, nullptr);
-    LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, 0);
+    ///HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, PAGE_SIZE * 10, nullptr);
+    ///LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, 0);
 
-    LARGE_INTEGER size;
-    GetFileSizeEx(inputFile, &size);
+    //////////////////////////////////////////////////////////////////////////
+    
+    LARGE_INTEGER bigFileSize;
+    GetFileSizeEx(bigFile, &bigFileSize);
 
-    std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), 2);
-    std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
-    std::vector<std::unique_ptr<Chunk>> decompressedChunks = decompressChunks(std::move(compressedChunks));
+    const size_t CHUNKS_PER_MAP_COUNT = 10;
+    const size_t MAP_SIZE = PAGE_SIZE * CHUNKS_PER_MAP_COUNT;
+    const size_t MAP_COUNT = bigFileSize.QuadPart / MAP_SIZE;
+    
+    size_t totalCompressionSize = 0;
 
-    for (size_t i = 0; i < chunks.size(); ++i)
+    CHRONO_BEGIN
+    for (size_t i = 0; i < MAP_COUNT; ++i)
     {
-        char* beforeCompress = reinterpret_cast<char*>(chunks[i]->m_memory.get());
-        char* afterCompress = reinterpret_cast<char*>(decompressedChunks[i]->m_memory.get());
-        size_t len = PAGE_SIZE;
+        /// the offset to the current mapping of the file
+        LARGE_INTEGER offset;
+        offset.QuadPart = i * MAP_SIZE;
+        
+        HANDLE fileMap = CreateFileMapping(bigFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
+        LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, offset.HighPart, offset.LowPart, MAP_SIZE);
+        assert(mapFile != nullptr);
 
-        assert(strncmp(beforeCompress, afterCompress, len) == 0);        
+        std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), CHUNKS_PER_MAP_COUNT);
+        std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
+
+        writeCompressedChunksToFile(std::move(compressedChunks));
+
+        totalCompressionSize += getTotalCompressionSize(std::move(compressedChunks));
+        
+        CloseHandle(fileMap);
+        UnmapViewOfFile(mapFile);
     }
 
-    UnmapViewOfFile(mapFile);
-    CloseHandle(fileMap);
-    CloseHandle(inputFile);
-    
+    CloseHandle(bigFile);
+
+    CHRONO_END
+
+    //////////////////////////////////////////////////////////////////////////
+
+    ///std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), 10);
+    ///std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
+    ///std::vector<std::unique_ptr<Chunk>> decompressedChunks = decompressChunks(std::move(compressedChunks));
+    ///
+    ///for (size_t i = 0; i < chunks.size(); ++i)
+    ///{
+    ///    char* beforeCompress = reinterpret_cast<char*>(chunks[i]->m_memory.get());
+    ///    char* afterCompress = reinterpret_cast<char*>(decompressedChunks[i]->m_memory.get());
+    ///    size_t len = PAGE_SIZE;
+    ///
+    ///    assert(strncmp(beforeCompress, afterCompress, len) == 0);        
+    ///}
+    ///
+    ///UnmapViewOfFile(mapFile);
+    ///CloseHandle(fileMap);
+    ///CloseHandle(inputFile);
+
+
     return 0;
 }
