@@ -305,7 +305,7 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
         stream.avail_out = PAGE_SIZE;
         stream.next_out = output;
 
-        ret = inflate(&stream, Z_NO_FLUSH);
+        ret = inflate(&stream, Z_FINISH);
         assert(ret != Z_STREAM_ERROR);
 
         switch (ret)
@@ -321,20 +321,20 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
         }
 
         // TODO: fix here crash when avail_out is 0
-        have = PAGE_SIZE - stream.avail_out;
+        have = sourceBytesCount - stream.avail_out;
         assert(have != 0);
 
         memcpy(currentDest, output, have);
         currentDest = reinterpret_cast<uint8_t*>(currentDest) + have;
 
-    } while (stream.avail_out == 0);
+    } while (stream.avail_in != 0);
 
     (void)inflateEnd(&stream);
 
     assert(ret == Z_STREAM_END);
 
-    uint32_t compressedSize = reinterpret_cast<uint8_t*>(currentDest) - reinterpret_cast<uint8_t*>(dest);
-    return compressedSize;
+    uint32_t decompressedSize = reinterpret_cast<uint8_t*>(currentDest) - reinterpret_cast<uint8_t*>(dest);
+    return decompressedSize;
 }
 
 std::vector<std::unique_ptr<Chunk>> splitFiles(uint8_t* fileContent, uint32_t pageCount)
@@ -364,7 +364,7 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
     {
         unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
 
-        uint32_t compressedSize = compress(chunks[i]->m_memory.get(), mem.get(), PAGE_SIZE);
+        uint32_t compressedSize = compress(chunks[i]->m_memory.get(), mem.get(), chunks[i]->chunkSize);
 
         result[i] = std::make_unique<Chunk>(mem.release(), compressedSize);
     });
@@ -379,16 +379,21 @@ std::vector<std::unique_ptr<Chunk>> decompressChunks(std::vector<std::unique_ptr
 
     concurrency::parallel_for(size_t(0), compressedChunks.size(), [&compressedChunks, &result](size_t i)
     {
-        uint32_t chunkSize = compressedChunks[i]->chunkSize;
+        uint32_t compressedChunkSize = compressedChunks[i]->chunkSize;
 
-        unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, chunkSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
+        unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
 
-        uint32_t compressedSize = decompress(compressedChunks[i]->m_memory.get(), mem.get(), chunkSize);
+        uint32_t decompressedSize = decompress(compressedChunks[i]->m_memory.get(), mem.get(), compressedChunkSize);
 
-        result[i] = std::make_unique<Chunk>(mem.release(), compressedSize);
+        result[i] = std::make_unique<Chunk>(mem.release(), decompressedSize);
     });
 
     return result;
+}
+
+void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
+{
+
 }
 
 int main()
@@ -398,13 +403,25 @@ int main()
 
     OFSTRUCT ofstruct;
     HANDLE inputFile = reinterpret_cast<HANDLE>(OpenFile(BIG_FILE_PATH, &ofstruct, OF_READ));
-    HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, PAGE_SIZE * 2, nullptr);
+    HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, PAGE_SIZE * 10, nullptr);
     LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, 0);
-
+        
+    LARGE_INTEGER size;
+    GetFileSizeEx(inputFile, &size);
 
     std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), 2);
     std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
     std::vector<std::unique_ptr<Chunk>> decompressedChunks = decompressChunks(std::move(compressedChunks));
+
+    for (size_t i = 0; i < chunks.size(); ++i)
+    {
+        char* beforeCompress = reinterpret_cast<char*>(chunks[i]->m_memory.get());
+        char* afterCompress = reinterpret_cast<char*>(decompressedChunks[i]->m_memory.get());
+        size_t len = PAGE_SIZE;
+
+        assert(strncmp(beforeCompress, afterCompress, len) == 0);
+        
+    }
 
     UnmapViewOfFile(mapFile);
     CloseHandle(fileMap);
