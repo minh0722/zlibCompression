@@ -26,6 +26,7 @@ struct Coord
 uint32_t Coord::count = 0;
 
 static const char* BIG_FILE_PATH = "bigFile.bin";
+static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.bin";
 static const size_t PAGE_SIZE = 64 * 1024;
 
 static const char* TEST_FILE = "test.bin";
@@ -33,6 +34,19 @@ static const uint32_t TEST_MAP_CHUNK_SIZE = 10 * sizeof(Coord);
 static const char* COMPRESSED_FILE = "testCompressed.bin";
 static const LPCWSTR DECOMPRESSED_FILE = L"testDecompressed.bin";
 static const uint32_t CHUNK_SIZE = sizeof(Coord) * 2;
+
+
+void throwIfFailed(int ret)
+{
+    if (ret != Z_OK)
+        throw std::exception();
+}
+
+void throwIfFalse(bool flag)
+{
+    if (!flag)
+        throw std::exception();
+}
 
 void createFile()
 {
@@ -60,18 +74,6 @@ void createSmallFile()
     delete[] c;
 }
 
-void throwIfFailed(int ret)
-{
-    if (ret != Z_OK)
-        throw std::exception();
-}
-
-void throwIfFalse(bool flag)
-{
-    if (!flag)
-        throw std::exception();
-}
-
 void compress1()
 {
     OFSTRUCT ofstruct;
@@ -85,7 +87,7 @@ void compress1()
     const int deflateLevel = 6;
     int ret, flush;
     z_stream stream;
-    
+
 
     uint8_t outputBuffer[TEST_MAP_CHUNK_SIZE];
 
@@ -98,7 +100,7 @@ void compress1()
 
     ret = deflateInit(&stream, deflateLevel);
     throwIfFailed(ret);
-    
+
     int chunksCount = TEST_MAP_CHUNK_SIZE / CHUNK_SIZE;         /// compress 2 coords at a time
 
     stream.next_out = output;
@@ -160,7 +162,7 @@ void decompress1()
     int ret;
     z_stream stream;
     uint8_t outputBuffer[TEST_MAP_CHUNK_SIZE];
-    
+
     uint8_t* input = reinterpret_cast<uint8_t*>(mapFile);
     uint8_t* output = outputBuffer;
 
@@ -320,7 +322,6 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
             break;
         }
 
-        // TODO: fix here crash when avail_out is 0
         have = sourceBytesCount - stream.avail_out;
         assert(have != 0);
 
@@ -393,7 +394,26 @@ std::vector<std::unique_ptr<Chunk>> decompressChunks(std::vector<std::unique_ptr
 
 void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
+    HANDLE outputFile = CreateFile(
+        COMPRESSED_BIG_FILE,
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        nullptr,
+        OPEN_ALWAYS,                    /// open file if exist, else create new
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
 
+    SetEndOfFile(outputFile);           /// write from the end of the file
+
+    for (size_t i = 0; i < compressedChunks.size(); ++i)
+    {
+
+        uint8_t* chunkMem = reinterpret_cast<uint8_t*>(compressedChunks[i]->m_memory.get());
+        size_t size = compressedChunks[i]->chunkSize;
+
+        BOOL ret = WriteFile(outputFile, chunkMem, size, nullptr, nullptr);
+        assert(ret == TRUE);
+    }
 }
 
 int main()
@@ -405,7 +425,7 @@ int main()
     HANDLE inputFile = reinterpret_cast<HANDLE>(OpenFile(BIG_FILE_PATH, &ofstruct, OF_READ));
     HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, PAGE_SIZE * 10, nullptr);
     LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, 0);
-        
+
     LARGE_INTEGER size;
     GetFileSizeEx(inputFile, &size);
 
@@ -419,8 +439,7 @@ int main()
         char* afterCompress = reinterpret_cast<char*>(decompressedChunks[i]->m_memory.get());
         size_t len = PAGE_SIZE;
 
-        assert(strncmp(beforeCompress, afterCompress, len) == 0);
-        
+        assert(strncmp(beforeCompress, afterCompress, len) == 0);        
     }
 
     UnmapViewOfFile(mapFile);
