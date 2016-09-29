@@ -492,6 +492,12 @@ int main()
     const size_t MAP_COUNT1 = bigFileSize1.QuadPart / MAP_SIZE1;
     const size_t TOTAL_CHUNKS_COUNT = bigFileSize1.QuadPart / PAGE_SIZE;
 
+    // TODO: fix, attempted to align but not working
+    //const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
+    //const size_t TOTAL_CHUNKS_COUNT1 = align(bigFileSize1.QuadPart / PAGE_SIZE, CHUNKS_PER_MAP_COUNT1);
+    //const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
+    //const size_t MAP_COUNT1 = TOTAL_CHUNKS_COUNT1 / CHUNKS_PER_MAP_COUNT1;
+
     File::ManagedHandle fileMap1 = File::createReadFileMapping(bigFile1.get());
     std::vector<size_t> fat;      /// contains size of the compressed chunks
     fat.resize(TOTAL_CHUNKS_COUNT);
@@ -514,9 +520,16 @@ int main()
     }
 
     writeFatToFile(std::move(fat));
+    
+
 
     return 0;
 
+    
+    
+    
+    
+    
     //////////////////////////////////////////////////////////////////////////
 
     HANDLE bigFile = CreateFile(
