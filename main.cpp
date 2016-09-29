@@ -8,6 +8,7 @@
 #include <Windows.h>
 #include <chrono>
 #include "zlib.h"
+#include "file_util.h"
 using namespace std;
 using namespace std::chrono;
 
@@ -35,9 +36,11 @@ struct Coord
 
 uint32_t Coord::count = 0;
 
-static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
-static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.bin";
+static const LPCTSTR FAT_FILE_PATH = L"compressedFat.fat";
+static const LPCTSTR BIG_FILE_PATH = L"DataPC.forge";
+static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.forge";
 static const size_t PAGE_SIZE = 64 * 1024;
+static const int COMPRESSION_LEVEL = 9;
 
 static const char* TEST_FILE = "test.bin";
 static const uint32_t TEST_MAP_CHUNK_SIZE = 10 * sizeof(Coord);
@@ -232,12 +235,12 @@ struct Chunk
         }
     };
 
-    Chunk(uint32_t pageSize) : m_memory(VirtualAlloc(nullptr, pageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE), Deleter()) ,
+    Chunk(size_t pageSize) : m_memory(VirtualAlloc(nullptr, pageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE), Deleter()) ,
         chunkSize(pageSize)
     {
     }
 
-    Chunk(void* m, uint32_t pageSize) : m_memory(m, Deleter()), chunkSize(pageSize) 
+    Chunk(void* m, size_t pageSize) : m_memory(m, Deleter()), chunkSize(pageSize) 
     {
     }
 
@@ -245,6 +248,10 @@ struct Chunk
     size_t chunkSize;
 };
 
+size_t align(const size_t num, const size_t alignment)
+{
+    return ((num + alignment - 1) / alignment) * alignment;
+}
 
 uint32_t compress(void* source, void* dest, size_t sourceBytesCount)
 {
@@ -258,7 +265,7 @@ uint32_t compress(void* source, void* dest, size_t sourceBytesCount)
     stream.zalloc = Z_NULL;
     stream.zfree = Z_NULL;
     stream.opaque = Z_NULL;
-    ret = deflateInit(&stream, 9);
+    ret = deflateInit(&stream, COMPRESSION_LEVEL);
     assert(ret == Z_OK);
     
     flush = Z_FINISH;
@@ -348,7 +355,7 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
     return decompressedSize;
 }
 
-std::vector<std::unique_ptr<Chunk>> splitFiles(uint8_t* fileContent, uint32_t pageCount)
+std::vector<std::unique_ptr<Chunk>> splitFile(uint8_t* fileContent, uint32_t pageCount)
 {
     std::vector<std::unique_ptr<Chunk>> result;
 
@@ -374,12 +381,12 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
     concurrency::parallel_for(size_t(0), chunks.size(), [&chunks, &result](size_t i)
     {
         unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
-
-        uint32_t compressedSize = compress(chunks[i]->m_memory.get(), mem.get(), chunks[i]->chunkSize);
-
+        
+        uint64_t compressedSize = compress(chunks[i]->m_memory.get(), mem.get(), chunks[i]->chunkSize);
+        
         result[i] = std::make_unique<Chunk>(mem.release(), compressedSize);
     });
-
+    
     return result;
 }
 
@@ -427,6 +434,22 @@ void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compresse
     CloseHandle(outputFile);
 }
 
+void writeCompressedChunksToFile(HANDLE compressedFile, std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
+{
+    for (size_t i = 0; i < compressedChunks.size(); ++i)
+    {
+        uint8_t* chunkMem = reinterpret_cast<uint8_t*>(compressedChunks[i]->m_memory.get());
+        size_t size = compressedChunks[i]->chunkSize;
+
+        DWORD written;
+        BOOL ret = WriteFile(compressedFile, chunkMem, size, &written, nullptr);
+        assert(ret == TRUE);
+    }
+
+    CloseHandle(compressedFile);
+
+}
+
 size_t getTotalCompressionSize(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
     size_t sum = 0;
@@ -438,68 +461,121 @@ size_t getTotalCompressionSize(std::vector<std::unique_ptr<Chunk>>&& compressedC
     return sum;
 }
 
+void getFat(std::vector<size_t>& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChunks, size_t fatStartingIndex, size_t fatEndIndex)
+{
+    for (size_t i = fatStartingIndex, compressedIndex = 0; i < fatEndIndex; ++i, ++compressedIndex)
+    {
+        fat[i] = compressedChunks[compressedIndex]->chunkSize;
+    }
+}
+
+void writeFatToFile(std::vector<size_t>&& fat)
+{
+    size_t size = fat.size();
+
+    File::ManagedHandle fatHandler = File::createWriteFile(FAT_FILE_PATH);
+
+    BOOL ret = WriteFile(fatHandler.get(), fat.data(), size * sizeof(size_t), nullptr, nullptr);
+    assert(ret == TRUE);
+}
+
 int main()
 {
+    File::ManagedHandle bigFile1 = File::createReadFile(BIG_FILE_PATH);
+    
+    LARGE_INTEGER bigFileSize1;
+    GetFileSizeEx(bigFile1.get(), &bigFileSize1);
+    bigFileSize1.QuadPart = align(bigFileSize1.QuadPart, PAGE_SIZE);
+
+    const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
+    const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
+    const size_t MAP_COUNT1 = bigFileSize1.QuadPart / MAP_SIZE1;
+    const size_t TOTAL_CHUNKS_COUNT = bigFileSize1.QuadPart / PAGE_SIZE;
+
+    File::ManagedHandle fileMap1 = File::createReadFileMapping(bigFile1.get());
+    std::vector<size_t> fat;      /// contains size of the compressed chunks
+    fat.resize(TOTAL_CHUNKS_COUNT);
+    
+    for (size_t i = 0; i < MAP_COUNT1; ++i)
+    {
+        /// the offset to the current mapping of the file
+        LARGE_INTEGER offset;
+        offset.QuadPart = i * MAP_SIZE1;
+
+        File::ManagedFileMap mapFile1 = File::createReadMapViewOfFile(fileMap1.get(), offset, MAP_SIZE1);
+
+        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile1.get()), CHUNKS_PER_MAP_COUNT1);
+        auto compressedChunks = compressChunks(std::move(chunks));
+        writeCompressedChunksToFile(std::move(compressedChunks));
+
+        size_t fatStartingIndex = i * CHUNKS_PER_MAP_COUNT1;
+        size_t fatEndIndex = fatStartingIndex + CHUNKS_PER_MAP_COUNT1;
+        getFat(fat, std::move(compressedChunks), fatStartingIndex, fatEndIndex);
+    }
+
+    writeFatToFile(std::move(fat));
+
+    return 0;
+
+    //////////////////////////////////////////////////////////////////////////
+
     HANDLE bigFile = CreateFile(
         BIG_FILE_PATH,
         GENERIC_READ,
-        0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
         nullptr,
         OPEN_ALWAYS,            /// open file if exist, else create new
         FILE_ATTRIBUTE_NORMAL,
         nullptr);
     assert(bigFile != INVALID_HANDLE_VALUE);
-
-    ///HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, PAGE_SIZE * 10, nullptr);
-    ///LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, 0);
-
     
     LARGE_INTEGER bigFileSize;
     GetFileSizeEx(bigFile, &bigFileSize);
 
+
     const size_t CHUNKS_PER_MAP_COUNT = 1024;
     const size_t MAP_SIZE = PAGE_SIZE * CHUNKS_PER_MAP_COUNT;
-    const size_t MAP_COUNT = bigFileSize.QuadPart / MAP_SIZE;
-    
-
+    const size_t MAP_COUNT = bigFileSize.QuadPart / MAP_SIZE;   /// 64
+        
     CHRONO_BEGIN;
+
     for (size_t i = 0; i < MAP_COUNT; ++i)
     {
         /// the offset to the current mapping of the file
         LARGE_INTEGER offset;
         offset.QuadPart = i * MAP_SIZE;
-        
+
         HANDLE fileMap = CreateFileMapping(bigFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
         LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, offset.HighPart, offset.LowPart, MAP_SIZE);
         assert(mapFile != nullptr);
 
-        std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), CHUNKS_PER_MAP_COUNT);
-        std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
-
+        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile), CHUNKS_PER_MAP_COUNT);
+        auto compressedChunks = compressChunks(std::move(chunks));
         writeCompressedChunksToFile(std::move(compressedChunks));
 
-        
+
         CloseHandle(fileMap);
         UnmapViewOfFile(mapFile);
     }
+    
     CHRONO_END;
 
     CloseHandle(bigFile);
     
 
-    /// decompress
-    HANDLE compressedBigFile = CreateFile(
-        COMPRESSED_BIG_FILE,
-        GENERIC_WRITE,
-        0,
-        nullptr,
-        OPEN_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    assert(compressedBigFile != INVALID_HANDLE_VALUE);
+    ///// decompress
+    //HANDLE decompressedBigFile = CreateFile(
+    //    COMPRESSED_BIG_FILE,
+    //    GENERIC_WRITE,
+    //    0,
+    //    nullptr,
+    //    OPEN_ALWAYS,
+    //    FILE_ATTRIBUTE_NORMAL,
+    //    nullptr);
+    //assert(decompressedBigFile != INVALID_HANDLE_VALUE);
 
-    LARGE_INTEGER compressedFileSize;
-    GetFileSizeEx(compressedBigFile, &compressedFileSize);
+    //LARGE_INTEGER decompressedFileSize;
+    //GetFileSizeEx(decompressedBigFile, &decompressedFileSize);
 
 
 
