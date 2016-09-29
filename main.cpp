@@ -492,7 +492,8 @@ int main()
     const size_t MAP_COUNT1 = bigFileSize1.QuadPart / MAP_SIZE1;
     const size_t TOTAL_CHUNKS_COUNT = bigFileSize1.QuadPart / PAGE_SIZE;
 
-    // TODO: fix, attempted to align but not working
+    // TODO: fix, attempted to align but not working. In stefan's compress in main_pc.cpp
+    // he seems to read the file of the aligned size, thus the size is bigger than the file?
     //const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
     //const size_t TOTAL_CHUNKS_COUNT1 = align(bigFileSize1.QuadPart / PAGE_SIZE, CHUNKS_PER_MAP_COUNT1);
     //const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
