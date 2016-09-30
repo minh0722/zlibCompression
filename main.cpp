@@ -37,7 +37,7 @@ struct Coord
 uint32_t Coord::count = 0;
 
 static const LPCTSTR FAT_FILE_PATH = L"compressedFat.fat";
-static const LPCTSTR BIG_FILE_PATH = L"DataPC.forge";
+static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
 static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.forge";
 static const size_t PAGE_SIZE = 64 * 1024;
 static const int COMPRESSION_LEVEL = 9;
@@ -253,6 +253,19 @@ size_t align(const size_t num, const size_t alignment)
     return ((num + alignment - 1) / alignment) * alignment;
 }
 
+size_t alignDown(const size_t num, const size_t alignment)
+{
+    return (num / alignment) * alignment;
+}
+
+LARGE_INTEGER alignDown(const LARGE_INTEGER& size, const size_t alignment)
+{
+    LARGE_INTEGER newSize;
+    newSize.QuadPart = alignDown(size.QuadPart, alignment);
+
+    return newSize;
+}
+
 uint32_t compress(void* source, void* dest, size_t sourceBytesCount)
 {
     int ret, flush;
@@ -355,19 +368,19 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
     return decompressedSize;
 }
 
-std::vector<std::unique_ptr<Chunk>> splitFile(uint8_t* fileContent, uint32_t pageCount)
+std::vector<std::unique_ptr<Chunk>> splitFile(uint8_t* fileContent, uint32_t pageCount, size_t pageSize)
 {
     std::vector<std::unique_ptr<Chunk>> result;
 
     for (size_t i = 0; i < pageCount; ++i)
     {
-        result.emplace_back(std::make_unique<Chunk>(PAGE_SIZE));
+        result.emplace_back(std::make_unique<Chunk>(pageSize));
     }
 
-    concurrency::parallel_for(size_t(0), size_t(pageCount), [&result, fileContent](size_t i)
+    concurrency::parallel_for(size_t(0), size_t(pageCount), [&result, fileContent, &pageSize](size_t i)
     {
         void* currentChunkPtr = result[i]->m_memory.get();
-        memcpy(currentChunkPtr, fileContent + i * PAGE_SIZE, PAGE_SIZE);
+        memcpy(currentChunkPtr, fileContent + i * pageSize, pageSize);
     });
 
     return result;
@@ -461,11 +474,11 @@ size_t getTotalCompressionSize(std::vector<std::unique_ptr<Chunk>>&& compressedC
     return sum;
 }
 
-void getFat(std::vector<size_t>& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChunks, size_t fatStartingIndex, size_t fatEndIndex)
+void getFat(std::vector<size_t>& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
-    for (size_t i = fatStartingIndex, compressedIndex = 0; i < fatEndIndex; ++i, ++compressedIndex)
+    for (size_t i = 0; i < compressedChunks.size(); ++i)
     {
-        fat[i] = compressedChunks[compressedIndex]->chunkSize;
+        fat.push_back(compressedChunks[i]->chunkSize);
     }
 }
 
@@ -479,46 +492,104 @@ void writeFatToFile(std::vector<size_t>&& fat)
     assert(ret == TRUE);
 }
 
+std::vector<std::unique_ptr<Chunk>> compressLastUnalignedChunk(void* mapViewOfLastChunk, size_t chunkSizeInBytes)
+{
+    size_t chunksCount = chunkSizeInBytes / PAGE_SIZE;
+    size_t alignedBytesCount = alignDown(chunkSizeInBytes, PAGE_SIZE);
+    size_t trailBytesCount = chunkSizeInBytes - alignedBytesCount;
+
+    std::vector<unique_ptr<Chunk>> chunks;
+
+    /// split the chunks
+    if (chunksCount)
+    {
+        /// we have at least one chunk, so create the chunks and create the last chunk with remaining unaligned bytes
+        chunks = splitFile(reinterpret_cast<uint8_t*>(mapViewOfLastChunk), chunksCount, PAGE_SIZE);
+        mapViewOfLastChunk = reinterpret_cast<uint8_t*>(mapViewOfLastChunk) + alignedBytesCount;
+
+        auto lastUnalignedChunk = splitFile(reinterpret_cast<uint8_t*>(mapViewOfLastChunk), 1, trailBytesCount);
+        chunks.emplace_back(std::move(lastUnalignedChunk[0]));
+    }
+    else
+    {
+        /// the content are less than one chunk so just create 1 chunk of that size
+        chunks.emplace_back(std::make_unique<Chunk>(chunkSizeInBytes));
+        memcpy(chunks[0]->m_memory.get(), mapViewOfLastChunk, chunkSizeInBytes);
+    }
+
+    /// compress the chunks
+    auto compressedChunks = compressChunks(std::move(chunks));
+
+    return compressedChunks;
+}
+
 int main()
 {
+
+    /*
+        Create a mapping of the file.
+        First we create a map view of size map-size-aligned and compress them.
+        Then create map view starting from the beginning of the trail datas 
+        that are after the aligned chunks
+    */
+
+    const size_t CHUNKS_PER_MAP_COUNT1 = 10;
+    const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
+
+    /// open input file
     File::ManagedHandle bigFile1 = File::createReadFile(BIG_FILE_PATH);
     
-    LARGE_INTEGER bigFileSize1;
-    GetFileSizeEx(bigFile1.get(), &bigFileSize1);
-    bigFileSize1.QuadPart = align(bigFileSize1.QuadPart, PAGE_SIZE);
+    /// align down file size to map size
+    LARGE_INTEGER bigFileSize1 = File::fileSize(bigFile1.get());
+    LARGE_INTEGER bigFileAlignedSize = alignDown(bigFileSize1, MAP_SIZE1);
 
-    const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
-    const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
-    const size_t MAP_COUNT1 = bigFileSize1.QuadPart / MAP_SIZE1;
-    const size_t TOTAL_CHUNKS_COUNT = bigFileSize1.QuadPart / PAGE_SIZE;
+    /// how much map viewing we have to do and total number of chunks
+    const size_t MAP_COUNT1 = bigFileAlignedSize.QuadPart / MAP_SIZE1;
+    const size_t TOTAL_CHUNKS_COUNT = bigFileAlignedSize.QuadPart / PAGE_SIZE;
 
-    // TODO: fix, attempted to align but not working. In stefan's compress in main_pc.cpp
-    // he seems to read the file of the aligned size, thus the size is bigger than the file?
-    //const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
-    //const size_t TOTAL_CHUNKS_COUNT1 = align(bigFileSize1.QuadPart / PAGE_SIZE, CHUNKS_PER_MAP_COUNT1);
-    //const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
-    //const size_t MAP_COUNT1 = TOTAL_CHUNKS_COUNT1 / CHUNKS_PER_MAP_COUNT1;
+    /// mapping of the file
+    File::ManagedHandle fileMapping = File::createReadFileMapping(bigFile1.get(), 0);
 
-    File::ManagedHandle fileMap1 = File::createReadFileMapping(bigFile1.get());
-    std::vector<size_t> fat;      /// contains size of the compressed chunks
-    fat.resize(TOTAL_CHUNKS_COUNT);
+    /// contains offsets of the compressed chunks
+    std::vector<size_t> fat;
     
     for (size_t i = 0; i < MAP_COUNT1; ++i)
     {
-        /// the offset to the current mapping of the file
+        /// the offset to the current map view of the file
         LARGE_INTEGER offset;
         offset.QuadPart = i * MAP_SIZE1;
 
-        File::ManagedFileMap mapFile1 = File::createReadMapViewOfFile(fileMap1.get(), offset, MAP_SIZE1);
+        File::ManagedFileMap mapFile1 = File::createReadMapViewOfFile(fileMapping.get(), offset, MAP_SIZE1);
 
-        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile1.get()), CHUNKS_PER_MAP_COUNT1);
+        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile1.get()), CHUNKS_PER_MAP_COUNT1, PAGE_SIZE);
         auto compressedChunks = compressChunks(std::move(chunks));
         writeCompressedChunksToFile(std::move(compressedChunks));
 
-        size_t fatStartingIndex = i * CHUNKS_PER_MAP_COUNT1;
-        size_t fatEndIndex = fatStartingIndex + CHUNKS_PER_MAP_COUNT1;
-        getFat(fat, std::move(compressedChunks), fatStartingIndex, fatEndIndex);
+        //size_t fatStartingIndex = i * CHUNKS_PER_MAP_COUNT1;
+        //size_t fatEndIndex = fatStartingIndex + CHUNKS_PER_MAP_COUNT1;
+        getFat(fat, std::move(compressedChunks));
     }
+
+    /// now we need to compress the remaining unaligned datas
+    size_t remainingDataInByte = bigFileSize1.QuadPart - bigFileAlignedSize.QuadPart;
+
+    if (remainingDataInByte)
+    {
+        LARGE_INTEGER offset;
+        offset.QuadPart = MAP_COUNT1 * MAP_SIZE1;
+
+        File::ManagedFileMap mapFile = File::createReadMapViewOfFile(fileMapping.get(), offset, remainingDataInByte);
+
+        auto compressedChunks = compressLastUnalignedChunk(mapFile.get(), remainingDataInByte);
+
+        //auto chunk = splitFile(reinterpret_cast<uint8_t*>(mapFile.get()), 1, remainingDataInByte);
+        //auto compressedChunk = compressChunks(std::move(chunk));
+
+        writeCompressedChunksToFile(std::move(compressedChunks));
+
+        getFat(fat, std::move(compressedChunks));        
+    }
+
 
     writeFatToFile(std::move(fat));
     
@@ -563,7 +634,7 @@ int main()
         LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, offset.HighPart, offset.LowPart, MAP_SIZE);
         assert(mapFile != nullptr);
 
-        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile), CHUNKS_PER_MAP_COUNT);
+        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile), CHUNKS_PER_MAP_COUNT, PAGE_SIZE);
         auto compressedChunks = compressChunks(std::move(chunks));
         writeCompressedChunksToFile(std::move(compressedChunks));
 

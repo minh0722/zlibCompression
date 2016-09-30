@@ -70,10 +70,13 @@ namespace File
         return file;
     }
 
-    ManagedHandle createReadFileMapping(HANDLE file)
+    ManagedHandle createReadFileMapping(HANDLE file, size_t mapSize)
     {
+        LARGE_INTEGER size;
+        size.QuadPart = mapSize;
+
         ManagedHandle fileMap(
-            safeHandle(CreateFileMapping(file, nullptr, PAGE_READONLY, 0, 0, nullptr)),
+            safeHandle(CreateFileMapping(file, nullptr, PAGE_READONLY, size.HighPart, size.LowPart, nullptr)),
             FileHandleCloser());
 
         if (!fileMap)
@@ -96,6 +99,15 @@ namespace File
         }
 
         return m;
+    }
+
+
+    LARGE_INTEGER fileSize(const HANDLE& file)
+    {
+        LARGE_INTEGER size;
+        GetFileSizeEx(file, &size);
+
+        return size;
     }
 
 }
