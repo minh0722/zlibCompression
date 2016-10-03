@@ -41,6 +41,8 @@ static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
 static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.forge";
 static const size_t PAGE_SIZE = 64 * 1024;
 static const int COMPRESSION_LEVEL = 9;
+static const size_t CHUNKS_PER_MAP_COUNT1 = 10;
+static const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
 
 static const char* TEST_FILE = "test.bin";
 static const uint32_t TEST_MAP_CHUNK_SIZE = 10 * sizeof(Coord);
@@ -86,142 +88,6 @@ void createSmallFile()
 
     delete[] c;
 }
-
-void compress1()
-{
-    OFSTRUCT ofstruct;
-    HANDLE inputFile = reinterpret_cast<HANDLE>(OpenFile(TEST_FILE, &ofstruct, OF_READ));
-    HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, 0, nullptr);       /// file has 100 coords
-    LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, TEST_MAP_CHUNK_SIZE);          /// map only 10 coords
-
-    if (!mapFile)
-        throw std::exception();
-
-    const int deflateLevel = 6;
-    int ret, flush;
-    z_stream stream;
-
-
-    uint8_t outputBuffer[TEST_MAP_CHUNK_SIZE];
-
-    uint8_t* input = reinterpret_cast<uint8_t*>(mapFile);
-    uint8_t* output = outputBuffer;
-
-    stream.zalloc = nullptr;
-    stream.zfree = nullptr;
-    stream.opaque = nullptr;
-
-    ret = deflateInit(&stream, deflateLevel);
-    throwIfFailed(ret);
-
-    int chunksCount = TEST_MAP_CHUNK_SIZE / CHUNK_SIZE;         /// compress 2 coords at a time
-
-    stream.next_out = output;
-    for (int i = 0; i < chunksCount; ++i)
-    {
-        stream.avail_in = CHUNK_SIZE;
-        stream.next_in = input + i * CHUNK_SIZE;
-
-        flush = Z_NO_FLUSH;
-
-        if (i == chunksCount - 1)
-        {
-            flush = Z_FINISH;
-        }
-
-        do
-        {
-            stream.avail_out = CHUNK_SIZE;
-            stream.next_out = output + stream.total_out;
-
-            ret = deflate(&stream, flush);
-            assert(ret != Z_STREAM_ERROR);
-
-        } while (stream.avail_out == 0);
-    }
-
-    FILE* compressedFile;
-    fopen_s(&compressedFile, COMPRESSED_FILE, "w");
-
-    fwrite(output, sizeof(uint8_t), stream.total_out, compressedFile);
-    fclose(compressedFile);
-
-    deflateEnd(&stream);
-
-    UnmapViewOfFile(mapFile);
-    CloseHandle(fileMap);
-    CloseHandle(inputFile);
-}
-
-void decompress1()
-{
-    OFSTRUCT ofstruct;
-    HANDLE inputFile = reinterpret_cast<HANDLE>(OpenFile(COMPRESSED_FILE, &ofstruct, OF_READ));
-    HANDLE fileMap = CreateFileMapping(inputFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
-    LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, 0, 0, 0);
-
-    HANDLE outputFile = CreateFile(
-        DECOMPRESSED_FILE,              /// name of the file
-        GENERIC_WRITE | GENERIC_READ,   /// open for read write
-        0,                              /// do not share
-        nullptr,                        /// default security
-        CREATE_ALWAYS,                  /// create file and overwrite if already exist
-        FILE_ATTRIBUTE_NORMAL,          /// normal file
-        nullptr);                      /// no attr. template
-
-    if (!mapFile || outputFile != INVALID_HANDLE_VALUE)
-        throw std::exception();
-
-    int ret;
-    z_stream stream;
-    uint8_t outputBuffer[TEST_MAP_CHUNK_SIZE];
-
-    uint8_t* input = reinterpret_cast<uint8_t*>(mapFile);
-    uint8_t* output = outputBuffer;
-
-    stream.zalloc = Z_NULL;
-    stream.zfree = Z_NULL;
-    stream.opaque = Z_NULL;
-    stream.avail_in = 0;
-    stream.next_in = Z_NULL;
-
-    ret = inflateInit(&stream);
-    throwIfFailed(ret);
-
-    /// whole file is 55kb so inflate all
-    stream.avail_out = TEST_MAP_CHUNK_SIZE;
-    stream.next_out = output;
-
-    stream.avail_in = TEST_MAP_CHUNK_SIZE;
-    stream.next_in = input;
-
-    ret = inflate(&stream, Z_NO_FLUSH);
-    assert(ret != Z_STREAM_ERROR);
-
-    switch (ret)
-    {
-    case Z_NEED_DICT:
-        ret = Z_DATA_ERROR;
-        break;
-    case Z_DATA_ERROR:
-    case Z_MEM_ERROR:
-        (void)inflateEnd(&stream);
-        return;
-    }
-
-    DWORD bytesWritten;
-    BOOL writeFlag = WriteFile(outputFile, output, stream.total_out, &bytesWritten, nullptr);
-    assert(writeFlag != false);
-
-    (void)inflateEnd(&stream);
-
-    UnmapViewOfFile(mapFile);
-    CloseHandle(inputFile);
-    CloseHandle(fileMap);
-    CloseHandle(outputFile);
-}
-
-
 
 
 struct Chunk
@@ -492,7 +358,7 @@ void writeFatToFile(std::vector<size_t>&& fat)
     assert(ret == TRUE);
 }
 
-std::vector<std::unique_ptr<Chunk>> compressLastUnalignedChunk(void* mapViewOfLastChunk, size_t chunkSizeInBytes)
+std::vector<std::unique_ptr<Chunk>> splitLastUnalignedBytes(void* mapViewOfLastChunk, size_t chunkSizeInBytes)
 {
     size_t chunksCount = chunkSizeInBytes / PAGE_SIZE;
     size_t alignedBytesCount = alignDown(chunkSizeInBytes, PAGE_SIZE);
@@ -507,8 +373,12 @@ std::vector<std::unique_ptr<Chunk>> compressLastUnalignedChunk(void* mapViewOfLa
         chunks = splitFile(reinterpret_cast<uint8_t*>(mapViewOfLastChunk), chunksCount, PAGE_SIZE);
         mapViewOfLastChunk = reinterpret_cast<uint8_t*>(mapViewOfLastChunk) + alignedBytesCount;
 
-        auto lastUnalignedChunk = splitFile(reinterpret_cast<uint8_t*>(mapViewOfLastChunk), 1, trailBytesCount);
-        chunks.emplace_back(std::move(lastUnalignedChunk[0]));
+        /// if we have trailing bytes that are less than PAGE_SIZE
+        if (trailBytesCount)
+        {
+            auto lastUnalignedChunk = splitFile(reinterpret_cast<uint8_t*>(mapViewOfLastChunk), 1, trailBytesCount);
+            chunks.emplace_back(std::move(lastUnalignedChunk[0]));
+        }
     }
     else
     {
@@ -517,28 +387,21 @@ std::vector<std::unique_ptr<Chunk>> compressLastUnalignedChunk(void* mapViewOfLa
         memcpy(chunks[0]->m_memory.get(), mapViewOfLastChunk, chunkSizeInBytes);
     }
 
-    /// compress the chunks
-    auto compressedChunks = compressChunks(std::move(chunks));
-
-    return compressedChunks;
+    return chunks;
 }
 
-int main()
+void compress()
 {
-
     /*
-        Create a mapping of the file.
-        First we create a map view of size map-size-aligned and compress them.
-        Then create map view starting from the beginning of the trail datas 
-        that are after the aligned chunks
+    Create a mapping of the file.
+    First we create a map view of size map-size-aligned and compress them.
+    Then create map view starting from the beginning of the trail datas
+    that are after the aligned chunks
     */
-
-    const size_t CHUNKS_PER_MAP_COUNT1 = 10;
-    const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
 
     /// open input file
     File::ManagedHandle bigFile1 = File::createReadFile(BIG_FILE_PATH);
-    
+
     /// align down file size to map size
     LARGE_INTEGER bigFileSize1 = File::fileSize(bigFile1.get());
     LARGE_INTEGER bigFileAlignedSize = alignDown(bigFileSize1, MAP_SIZE1);
@@ -552,7 +415,7 @@ int main()
 
     /// contains offsets of the compressed chunks
     std::vector<size_t> fat;
-    
+
     for (size_t i = 0; i < MAP_COUNT1; ++i)
     {
         /// the offset to the current map view of the file
@@ -565,8 +428,6 @@ int main()
         auto compressedChunks = compressChunks(std::move(chunks));
         writeCompressedChunksToFile(std::move(compressedChunks));
 
-        //size_t fatStartingIndex = i * CHUNKS_PER_MAP_COUNT1;
-        //size_t fatEndIndex = fatStartingIndex + CHUNKS_PER_MAP_COUNT1;
         getFat(fat, std::move(compressedChunks));
     }
 
@@ -575,25 +436,22 @@ int main()
 
     if (remainingDataInByte)
     {
-        LARGE_INTEGER offset;
-        offset.QuadPart = MAP_COUNT1 * MAP_SIZE1;
-
-        File::ManagedFileMap mapFile = File::createReadMapViewOfFile(fileMapping.get(), offset, remainingDataInByte);
-
-        auto compressedChunks = compressLastUnalignedChunk(mapFile.get(), remainingDataInByte);
-
-        //auto chunk = splitFile(reinterpret_cast<uint8_t*>(mapFile.get()), 1, remainingDataInByte);
-        //auto compressedChunk = compressChunks(std::move(chunk));
+        File::ManagedFileMap mapFile = File::createReadMapViewOfFile(fileMapping.get(), bigFileAlignedSize, remainingDataInByte);
+        auto chunks = splitLastUnalignedBytes(mapFile.get(), remainingDataInByte);
+        auto compressedChunks = compressChunks(std::move(chunks));
 
         writeCompressedChunksToFile(std::move(compressedChunks));
 
-        getFat(fat, std::move(compressedChunks));        
+        getFat(fat, std::move(compressedChunks));
     }
 
-
     writeFatToFile(std::move(fat));
-    
+}
 
+int main()
+{    
+
+    compress();
 
     return 0;
 
