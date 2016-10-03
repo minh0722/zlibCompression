@@ -401,7 +401,7 @@ void compress()
     Then create map view starting from the beginning of the trail datas
     that are after the aligned chunks
     */
-    
+
     /// open input file
     File::ManagedHandle bigFile1 = File::createReadFile(BIG_FILE_PATH);
 
@@ -462,7 +462,7 @@ LARGE_INTEGER getOffset(size_t mapIndex, std::vector<size_t>& fatChunksSizes)
 size_t getViewSize(size_t mapIndex, std::vector<size_t>& fatChunksSizes)
 {	
 	size_t offset = mapIndex * CHUNKS_PER_MAP_COUNT1;
-	size_t size = fatChunksSizes[offset + CHUNKS_PER_MAP_COUNT1];
+	size_t size = fatChunksSizes[offset + CHUNKS_PER_MAP_COUNT1] - fatChunksSizes[offset];
 
 	return size;
 }
@@ -480,12 +480,22 @@ void decompress()
 
     const size_t MAP_COUNT = fat.m_chunksSizes.size() / CHUNKS_PER_MAP_COUNT1;
 
+	SYSTEM_INFO info;
+	GetSystemInfo(&info);
+
+	// DO THIS? - on compress just write the compressed datas and in the end append
+	// zeros to the file so its size is aligned to granularity.
+	// Decompress is more complex. We read granularity-aligned-sized chunks
+	// and carefuly calculate the chunks starting address to decompress
+
     for (size_t i = 0; i < MAP_COUNT; ++i)
     {
         LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
 		size_t viewSize = getViewSize(i, fat.m_chunksSizes);
+		LARGE_INTEGER alignedOffset = { align(offset.QuadPart, info.dwAllocationGranularity) };
+		/// WRONG: offset must be aligned, which means in compress we must write every map granularity-aligned-sized bytes
 
-		File::ManagedViewHandle decompressedFileView = File::createWriteMapViewOfFile(compressedMapping.get(), offset, viewSize);
+		File::ManagedViewHandle compressedFileView = File::createReadMapViewOfFile(compressedMapping.get(), alignedOffset, viewSize);
 
     }
 
