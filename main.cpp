@@ -7,8 +7,10 @@
 #include <ppl.h>
 #include <Windows.h>
 #include <chrono>
+#include <numeric>
 #include "zlib.h"
 #include "file_util.h"
+#include "fat.h"
 using namespace std;
 using namespace std::chrono;
 
@@ -39,6 +41,7 @@ uint32_t Coord::count = 0;
 static const LPCTSTR FAT_FILE_PATH = L"compressedFat.fat";
 static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
 static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.forge";
+static const LPCWSTR DECOMPRESSED_BIG_FILE = L"decompressedBigFile.forge";
 static const size_t PAGE_SIZE = 64 * 1024;
 static const int COMPRESSION_LEVEL = 9;
 static const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
@@ -268,23 +271,12 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
     return result;
 }
 
-std::vector<std::unique_ptr<Chunk>> decompressChunks(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
+std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedView, std::vector<size_t>& chunkSizes)
 {
-    vector<std::unique_ptr<Chunk>> result;
-    result.resize(compressedChunks.size());
+    std::vector<std::unique_ptr<Chunk>> compressedChunks(CHUNKS_PER_MAP_COUNT1);
 
-    concurrency::parallel_for(size_t(0), compressedChunks.size(), [&compressedChunks, &result](size_t i)
-    {
-        uint32_t compressedChunkSize = compressedChunks[i]->chunkSize;
 
-        unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
 
-        uint32_t decompressedSize = decompress(compressedChunks[i]->m_memory.get(), mem.get(), compressedChunkSize);
-
-        result[i] = std::make_unique<Chunk>(mem.release(), decompressedSize);
-    });
-
-    return result;
 }
 
 void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
@@ -330,31 +322,43 @@ void writeCompressedChunksToFile(HANDLE compressedFile, std::vector<std::unique_
 
 size_t getTotalCompressionSize(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
-    size_t sum = 0;
-    for (size_t i = 0; i < compressedChunks.size(); ++i)
-    {
-        sum += compressedChunks[i]->chunkSize;
-    }
-
-    return sum;
+    return std::accumulate(
+        compressedChunks.begin(), 
+        compressedChunks.end(), 
+        0,
+        [](size_t sum, std::unique_ptr<Chunk>& ptr) 
+        {
+            return sum + ptr->chunkSize;
+        }
+    );
 }
 
-void getFat(std::vector<size_t>& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
+void getFat(File::Fat& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
-    for (size_t i = 0; i < compressedChunks.size(); ++i)
+    //for (size_t i = 0; i < compressedChunks.size(); ++i)
+    //{
+    //    fat.m_chunksSizes.push_back(compressedChunks[i]->chunkSize);
+    //}
+
+
+    if (fat.m_chunksSizes.size() == 0)
     {
-        fat.push_back(compressedChunks[i]->chunkSize);
+        fat.m_chunksSizes.push_back(0);
+
+        for (size_t i = 1; i < compressedChunks.size(); ++i)
+        {
+            size_t prevOffset = fat.m_chunksSizes[i - 1];
+            fat.m_chunksSizes.push_back(compressedChunks[i]->chunkSize + prevOffset);
+        }
     }
-}
-
-void writeFatToFile(std::vector<size_t>&& fat)
-{
-    size_t size = fat.size();
-
-    File::ManagedHandle fatHandler = File::createWriteFile(FAT_FILE_PATH);
-
-    BOOL ret = WriteFile(fatHandler.get(), fat.data(), size * sizeof(size_t), nullptr, nullptr);
-    assert(ret == TRUE);
+    else
+    {
+        for (size_t i = 0; i < compressedChunks.size(); ++i)
+        {
+            size_t prevOffset = fat.m_chunksSizes.back();
+            fat.m_chunksSizes.push_back(compressedChunks[i]->chunkSize + prevOffset);
+        }
+    }
 }
 
 std::vector<std::unique_ptr<Chunk>> splitLastUnalignedBytes(void* mapViewOfLastChunk, size_t chunkSizeInBytes)
@@ -397,7 +401,7 @@ void compress()
     Then create map view starting from the beginning of the trail datas
     that are after the aligned chunks
     */
-
+    
     /// open input file
     File::ManagedHandle bigFile1 = File::createReadFile(BIG_FILE_PATH);
 
@@ -413,7 +417,7 @@ void compress()
     File::ManagedHandle fileMapping = File::createReadFileMapping(bigFile1.get(), 0);
 
     /// contains offsets of the compressed chunks
-    std::vector<size_t> fat;
+    File::Fat fat;
 
     for (size_t i = 0; i < MAP_COUNT1; ++i)
     {
@@ -421,7 +425,7 @@ void compress()
         LARGE_INTEGER offset;
         offset.QuadPart = i * MAP_SIZE1;
 
-        File::ManagedFileMap mapFile1 = File::createReadMapViewOfFile(fileMapping.get(), offset, MAP_SIZE1);
+        File::ManagedViewHandle mapFile1 = File::createReadMapViewOfFile(fileMapping.get(), offset, MAP_SIZE1);
 
         auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile1.get()), CHUNKS_PER_MAP_COUNT1, PAGE_SIZE);
         auto compressedChunks = compressChunks(std::move(chunks));
@@ -434,7 +438,7 @@ void compress()
 
     if (remainingDataInByte)
     {
-        File::ManagedFileMap mapFile = File::createReadMapViewOfFile(fileMapping.get(), bigFileAlignedSize, remainingDataInByte);
+        File::ManagedViewHandle mapFile = File::createReadMapViewOfFile(fileMapping.get(), bigFileAlignedSize, remainingDataInByte);
         auto chunks = splitLastUnalignedBytes(mapFile.get(), remainingDataInByte);
         auto compressedChunks = compressChunks(std::move(chunks));
 
@@ -443,14 +447,56 @@ void compress()
         getFat(fat, std::move(compressedChunks));
     }
 
-    writeFatToFile(std::move(fat));
+    fat.m_fileSize = bigFileSize1.QuadPart;
+    fat.writeToFile(FAT_FILE_PATH);
+}
+
+LARGE_INTEGER getOffset(size_t mapIndex, std::vector<size_t>& fatChunksSizes)
+{
+    LARGE_INTEGER offset = { 0 };
+
+    size_t compressedChunksStart = CHUNKS_PER_MAP_COUNT1 * mapIndex;
+
+    for (size_t i = 0; i < compressedChunksStart; ++i)
+    {
+        offset.QuadPart += fatChunksSizes[i];
+    }
+    
+    return offset;
+}
+
+void decompress()
+{
+    File::Fat fat;
+    fat.readFromFile(FAT_FILE_PATH);
+
+    File::ManagedHandle compressedHandle = File::createReadFile(COMPRESSED_BIG_FILE);
+    LARGE_INTEGER compressedFileSize = File::fileSize(compressedHandle.get());
+    File::ManagedHandle compressedMapping = File::createReadFileMapping(compressedHandle.get(), 0);
+
+    File::ManagedHandle decompressedHandle = File::createWriteFile(DECOMPRESSED_BIG_FILE);
+
+    const size_t MAP_COUNT = fat.m_chunksSizes.size() / CHUNKS_PER_MAP_COUNT1;
+
+    for (size_t i = 0; i < MAP_COUNT; ++i)
+    {
+        LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
+        
+
+        File::ManagedHandle decompressedFileView = File::createWriteMapViewOfFile(compressedMapping.get(), offset, )
+
+    }
+
 }
 
 int main()
 {    
-    CHRONO_BEGIN
-    compress();
-    CHRONO_END
+    //CHRONO_BEGIN;
+    //compress();
+    //CHRONO_END;
+
+    decompress();
+
 
     return 0;
 

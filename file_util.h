@@ -27,7 +27,7 @@ namespace File
     };
 
     using ManagedHandle = std::unique_ptr<void, FileHandleCloser>;
-    using ManagedFileMap = std::unique_ptr<void, ViewOfFileCloser>;
+    using ManagedViewHandle = std::unique_ptr<void, ViewOfFileCloser>;
 
     HANDLE safeHandle(HANDLE handle)
     {
@@ -87,10 +87,41 @@ namespace File
         return fileMap;
     }
 
-    ManagedFileMap createReadMapViewOfFile(HANDLE fileMapping, LARGE_INTEGER mapOffset, size_t mapSize)
+    ManagedHandle createWriteFileMapping(HANDLE file, size_t mapSize)
     {
-        ManagedFileMap m(
+        LARGE_INTEGER size;
+        size.QuadPart = mapSize;
+
+        ManagedHandle fileMap(
+            safeHandle(CreateFileMapping(file, nullptr, PAGE_READWRITE, size.HighPart, size.LowPart, nullptr)),
+            FileHandleCloser());
+
+        if (!fileMap)
+        {
+            throw std::exception();
+        }
+
+        return fileMap;
+    }
+
+    ManagedViewHandle createReadMapViewOfFile(HANDLE fileMapping, LARGE_INTEGER mapOffset, size_t mapSize)
+    {
+        ManagedViewHandle m(
             MapViewOfFile(fileMapping, FILE_MAP_READ, mapOffset.HighPart, mapOffset.LowPart, mapSize),
+            ViewOfFileCloser());
+
+        if (!m)
+        {
+            throw std::exception();
+        }
+
+        return m;
+    }
+
+    ManagedViewHandle createWriteMapViewOfFile(HANDLE fileMapping, LARGE_INTEGER mapOffset, size_t mapSize)
+    {
+        ManagedViewHandle m(
+            MapViewOfFile(fileMapping, FILE_MAP_WRITE, mapOffset.HighPart, mapOffset.LowPart, mapSize),
             ViewOfFileCloser());
 
         if (!m)
@@ -108,6 +139,21 @@ namespace File
         GetFileSizeEx(file, &size);
 
         return size;
+    }
+
+    void setFileSize(const HANDLE& file, size_t extendSize)
+    {
+        LARGE_INTEGER size;
+        size.QuadPart = extendSize;
+
+        auto ret = SetFilePointerEx(file, size, nullptr, FILE_BEGIN);
+        assert(ret != INVALID_SET_FILE_POINTER);
+
+        SetEndOfFile(file);
+
+        /// reset back pointer to beginning of file
+        ret = SetFilePointerEx(file, { 0 }, nullptr, FILE_BEGIN);
+        assert(ret != INVALID_SET_FILE_POINTER);
     }
 
 }
