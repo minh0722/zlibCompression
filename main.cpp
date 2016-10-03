@@ -454,15 +454,17 @@ void compress()
 LARGE_INTEGER getOffset(size_t mapIndex, std::vector<size_t>& fatChunksSizes)
 {
     LARGE_INTEGER offset = { 0 };
-
-    size_t compressedChunksStart = CHUNKS_PER_MAP_COUNT1 * mapIndex;
-
-    for (size_t i = 0; i < compressedChunksStart; ++i)
-    {
-        offset.QuadPart += fatChunksSizes[i];
-    }
+	offset.QuadPart = fatChunksSizes[mapIndex * CHUNKS_PER_MAP_COUNT1];
     
     return offset;
+}
+
+size_t getViewSize(size_t mapIndex, std::vector<size_t>& fatChunksSizes)
+{	
+	size_t offset = mapIndex * CHUNKS_PER_MAP_COUNT1;
+	size_t size = fatChunksSizes[offset + CHUNKS_PER_MAP_COUNT1];
+
+	return size;
 }
 
 void decompress()
@@ -481,9 +483,9 @@ void decompress()
     for (size_t i = 0; i < MAP_COUNT; ++i)
     {
         LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
-        
+		size_t viewSize = getViewSize(i, fat.m_chunksSizes);
 
-        //File::ManagedHandle decompressedFileView = File::createWriteMapViewOfFile(compressedMapping.get(), offset, )
+		File::ManagedViewHandle decompressedFileView = File::createWriteMapViewOfFile(compressedMapping.get(), offset, viewSize);
 
     }
 
