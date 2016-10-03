@@ -41,7 +41,7 @@ static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
 static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.forge";
 static const size_t PAGE_SIZE = 64 * 1024;
 static const int COMPRESSION_LEVEL = 9;
-static const size_t CHUNKS_PER_MAP_COUNT1 = 10;
+static const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
 static const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
 
 static const char* TEST_FILE = "test.bin";
@@ -49,7 +49,6 @@ static const uint32_t TEST_MAP_CHUNK_SIZE = 10 * sizeof(Coord);
 static const char* COMPRESSED_FILE = "testCompressed.bin";
 static const LPCWSTR DECOMPRESSED_FILE = L"testDecompressed.bin";
 static const uint32_t CHUNK_SIZE = sizeof(Coord) * 2;
-
 
 void throwIfFailed(int ret)
 {
@@ -427,7 +426,6 @@ void compress()
         auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile1.get()), CHUNKS_PER_MAP_COUNT1, PAGE_SIZE);
         auto compressedChunks = compressChunks(std::move(chunks));
         writeCompressedChunksToFile(std::move(compressedChunks));
-
         getFat(fat, std::move(compressedChunks));
     }
 
@@ -450,8 +448,9 @@ void compress()
 
 int main()
 {    
-
+    CHRONO_BEGIN
     compress();
+    CHRONO_END
 
     return 0;
 
@@ -480,7 +479,7 @@ int main()
     const size_t MAP_SIZE = PAGE_SIZE * CHUNKS_PER_MAP_COUNT;
     const size_t MAP_COUNT = bigFileSize.QuadPart / MAP_SIZE;   /// 64
         
-    CHRONO_BEGIN;
+    //CHRONO_BEGIN;
 
     for (size_t i = 0; i < MAP_COUNT; ++i)
     {
@@ -501,7 +500,7 @@ int main()
         UnmapViewOfFile(mapFile);
     }
     
-    CHRONO_END;
+    //CHRONO_END;
 
     CloseHandle(bigFile);
     
