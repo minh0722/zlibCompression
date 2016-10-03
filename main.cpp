@@ -271,13 +271,13 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
     return result;
 }
 
-std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedView, std::vector<size_t>& chunkSizes)
-{
-    std::vector<std::unique_ptr<Chunk>> compressedChunks(CHUNKS_PER_MAP_COUNT1);
-
-
-
-}
+//std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedView, std::vector<size_t>& chunkSizes)
+//{
+//    std::vector<std::unique_ptr<Chunk>> compressedChunks(CHUNKS_PER_MAP_COUNT1);
+//
+//
+//
+//}
 
 void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
@@ -345,9 +345,9 @@ void getFat(File::Fat& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChun
     {
         fat.m_chunksSizes.push_back(0);
 
-        for (size_t i = 1; i < compressedChunks.size(); ++i)
+        for (size_t i = 0; i < compressedChunks.size(); ++i)
         {
-            size_t prevOffset = fat.m_chunksSizes[i - 1];
+            size_t prevOffset = fat.m_chunksSizes.back();
             fat.m_chunksSizes.push_back(compressedChunks[i]->chunkSize + prevOffset);
         }
     }
@@ -483,14 +483,14 @@ void decompress()
         LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
         
 
-        File::ManagedHandle decompressedFileView = File::createWriteMapViewOfFile(compressedMapping.get(), offset, )
+        //File::ManagedHandle decompressedFileView = File::createWriteMapViewOfFile(compressedMapping.get(), offset, )
 
     }
 
 }
 
 int main()
-{    
+{
     //CHRONO_BEGIN;
     //compress();
     //CHRONO_END;
