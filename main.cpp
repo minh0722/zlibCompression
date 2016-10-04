@@ -380,20 +380,12 @@ void getFat(File::Fat& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChun
     if (fat.m_chunksSizes.size() == 0)
     {
         fat.m_chunksSizes.push_back(0);
-
-        for (size_t i = 0; i < compressedChunks.size(); ++i)
-        {
-            size_t prevOffset = fat.m_chunksSizes.back();
-            fat.m_chunksSizes.push_back(compressedChunks[i]->chunkSize + prevOffset);
-        }
     }
-    else
+
+    for (size_t i = 0; i < compressedChunks.size(); ++i)
     {
-        for (size_t i = 0; i < compressedChunks.size(); ++i)
-        {
-            size_t prevOffset = fat.m_chunksSizes.back();
-            fat.m_chunksSizes.push_back(compressedChunks[i]->chunkSize + prevOffset);
-        }
+        size_t prevOffset = fat.m_chunksSizes.back();
+        fat.m_chunksSizes.push_back(compressedChunks[i]->chunkSize + prevOffset);
     }
 }
 
