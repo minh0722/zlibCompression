@@ -289,14 +289,6 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
     return result;
 }
 
-//std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedView, std::vector<size_t>& chunkSizes)
-//{
-//    std::vector<std::unique_ptr<Chunk>> compressedChunks(CHUNKS_PER_MAP_COUNT1);
-//
-//
-//
-//}
-
 void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
 {
     HANDLE outputFile = CreateFile(
@@ -478,7 +470,34 @@ void compress()
     fat.writeToFile(FAT_FILE_PATH);
 }
 
-size_t getViewSize(_Out_ size_t& fatIndex, std::vector<size_t>& fatChunksSizes)
+std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedView, std::vector<size_t>& chunkSizes)
+{
+    std::vector<std::unique_ptr<Chunk>> compressedChunks(CHUNKS_PER_MAP_COUNT1);
+
+
+
+}
+
+size_t updateFatIndex(size_t fatIndex, std::vector<size_t>& fatChunksSizes)
+{
+    size_t size = fatChunksSizes[fatIndex + CHUNKS_PER_MAP_COUNT1] - fatChunksSizes[fatIndex];
+
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+
+    if (!isAligned(size, info.dwAllocationGranularity))
+    {
+        fatIndex = fatIndex + CHUNKS_PER_MAP_COUNT1 + 1;
+    }
+    else
+    {
+        fatIndex = fatIndex + CHUNKS_PER_MAP_COUNT1;
+    }
+
+    return fatIndex;
+}
+
+size_t getViewSize(size_t fatIndex, std::vector<size_t>& fatChunksSizes)
 {
     size_t size = fatChunksSizes[fatIndex + CHUNKS_PER_MAP_COUNT1] - fatChunksSizes[fatIndex];
 
@@ -488,11 +507,6 @@ size_t getViewSize(_Out_ size_t& fatIndex, std::vector<size_t>& fatChunksSizes)
     if (!isAligned(size, info.dwAllocationGranularity))
     {
         size = fatChunksSizes[fatIndex + CHUNKS_PER_MAP_COUNT1 + 1] - fatChunksSizes[fatIndex];
-        fatIndex = fatIndex + CHUNKS_PER_MAP_COUNT1 + 1;
-    }
-    else
-    {
-        fatIndex = fatIndex + CHUNKS_PER_MAP_COUNT1;
     }
 
     return size;
@@ -531,15 +545,13 @@ void decompress()
     //////////////////////////////////////////////////////////////////////////
     size_t fatIndex = 0;
     LARGE_INTEGER offset = {0};
-    for (fatIndex; fatIndex + CHUNKS_PER_MAP_COUNT1 < fat.m_chunksSizes.size();)
+    while(fatIndex + CHUNKS_PER_MAP_COUNT1 < fat.m_chunksSizes.size())
     {
-        /// fatIndex is updated here
         size_t viewSize = getViewSize(fatIndex, fat.m_chunksSizes);
         File::ManagedViewHandle compressedFileView = File::createReadMapViewOfFile(compressedMapping.get(), offset, viewSize);
+
         offset.QuadPart += viewSize;
-
-
-
+        fatIndex = updateFatIndex(fatIndex, fat.m_chunksSizes);
     }
 
 
