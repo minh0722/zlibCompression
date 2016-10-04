@@ -134,9 +134,14 @@ LARGE_INTEGER alignDown(const LARGE_INTEGER& size, const size_t alignment)
     return newSize;
 }
 
+bool isAligned(const size_t num, const size_t alignment)
+{
+    return (num/ alignment) * alignment == num;
+}
+
 bool isAligned(const LARGE_INTEGER& num, const size_t alignment)
 {
-    return (num.QuadPart / alignment) * alignment == num.QuadPart;
+    return isAligned(num.QuadPart, alignment);
 }
 
 LARGE_INTEGER getCountToAlignment(const LARGE_INTEGER& num, const size_t alignment)
@@ -322,11 +327,14 @@ void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compresse
     if (!isAligned(totalChunkSize, info.dwAllocationGranularity))
     {
         const LARGE_INTEGER countToAlignment = getCountToAlignment(totalChunkSize, info.dwAllocationGranularity);
-        
+
         std::vector<uint8_t> zeros(countToAlignment.QuadPart, 0);
 
         DWORD written;
         BOOL ret = WriteFile(outputFile, zeros.data(), countToAlignment.QuadPart, &written, nullptr);
+
+        /// put in dummy chunk that contains count to aligned count for getFat
+        compressedChunks.emplace_back(std::make_unique<Chunk>(nullptr, countToAlignment.QuadPart));
     }
 
     CloseHandle(outputFile);
@@ -467,11 +475,10 @@ void compress()
     if (remainingDataInByte)
     {
         File::ManagedViewHandle mapFile = File::createReadMapViewOfFile(fileMapping.get(), bigFileAlignedSize, remainingDataInByte);
+
         auto chunks = splitLastUnalignedBytes(mapFile.get(), remainingDataInByte);
         auto compressedChunks = compressChunks(std::move(chunks));
-
         writeCompressedChunksToFile(std::move(compressedChunks));
-
         getFat(fat, std::move(compressedChunks));
     }
 
@@ -492,6 +499,14 @@ size_t getViewSize(size_t mapIndex, std::vector<size_t>& fatChunksSizes)
 	size_t offset = mapIndex * CHUNKS_PER_MAP_COUNT1;
 	size_t size = fatChunksSizes[offset + CHUNKS_PER_MAP_COUNT1] - fatChunksSizes[offset];
 
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+
+    if (!isAligned(size, info.dwAllocationGranularity))
+    {
+        size = align(size, info.dwAllocationGranularity);
+    }
+
 	return size;
 }
 
@@ -501,8 +516,8 @@ void decompress()
     fat.readFromFile(FAT_FILE_PATH);
 
     File::ManagedHandle compressedHandle = File::createReadFile(COMPRESSED_BIG_FILE);
-    LARGE_INTEGER compressedFileSize = File::fileSize(compressedHandle.get());
     File::ManagedHandle compressedMapping = File::createReadFileMapping(compressedHandle.get(), 0);
+    LARGE_INTEGER compressedFileSize = File::fileSize(compressedHandle.get());
 
     File::ManagedHandle decompressedHandle = File::createWriteFile(DECOMPRESSED_BIG_FILE);
 
@@ -511,19 +526,16 @@ void decompress()
     SYSTEM_INFO info;
     GetSystemInfo(&info);
 
-    // DO THIS? - on compress just write the compressed datas and in the end append
-    // zeros to the file so its size is aligned to granularity.
-    // Decompress is more complex. We read granularity-aligned-sized chunks
-    // and carefully calculate the chunks starting address to decompress
+    LARGE_INTEGER offset = { 0 };
 
     for (size_t i = 0; i < MAP_COUNT; ++i)
     {
-        LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
+        /// get the offset and size of view (offset is aligned and size includes zeros)
         size_t viewSize = getViewSize(i, fat.m_chunksSizes);
-        LARGE_INTEGER alignedOffset = { align(offset.QuadPart, info.dwAllocationGranularity) };
-        /// WRONG: offset must be aligned, which means in compress we must write every map granularity-aligned-sized bytes
+        ///LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
+        
 
-        File::ManagedViewHandle compressedFileView = File::createReadMapViewOfFile(compressedMapping.get(), alignedOffset, viewSize);
+        File::ManagedViewHandle compressedFileView = File::createReadMapViewOfFile(compressedMapping.get(), offset, viewSize);
 
     }
 
