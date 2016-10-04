@@ -183,7 +183,10 @@ uint32_t compress(void* source, void* dest, size_t sourceBytesCount)
         have = PAGE_SIZE - stream.avail_out;
 
         /// copy the output to dest
-        memcpy(currentDest, output, have);
+        if (have != 0)
+        {
+            memcpy(currentDest, output, have);
+        }
         currentDest = reinterpret_cast<uint8_t*>(currentDest) + have;
 
     } while (stream.avail_out == 0);
@@ -281,9 +284,9 @@ std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<C
     concurrency::parallel_for(size_t(0), chunks.size(), [&chunks, &result](size_t i)
     {
         unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
-        
+
         uint64_t compressedSize = compress(chunks[i]->m_memory.get(), mem.get(), chunks[i]->chunkSize);
-        
+
         result[i] = std::make_unique<Chunk>(mem.release(), compressedSize);
     });
     
