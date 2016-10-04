@@ -502,6 +502,26 @@ size_t getViewSize(size_t mapIndex, std::vector<size_t>& fatChunksSizes)
 	return size;
 }
 
+size_t getViewSize1(_Out_ size_t& fatIndex, std::vector<size_t>& fatChunksSizes)
+{
+    size_t size = fatChunksSizes[fatIndex + CHUNKS_PER_MAP_COUNT1] - fatChunksSizes[fatIndex];
+
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+
+    if (!isAligned(size, info.dwAllocationGranularity))
+    {
+        size = fatChunksSizes[fatIndex + CHUNKS_PER_MAP_COUNT1 + 1] - fatChunksSizes[fatIndex];
+        fatIndex = fatIndex + CHUNKS_PER_MAP_COUNT1 + 1;
+    }
+    else
+    {
+        fatIndex = fatIndex + CHUNKS_PER_MAP_COUNT1;
+    }
+
+    return size;
+}
+
 void decompress()
 {
     File::Fat fat;
@@ -513,23 +533,39 @@ void decompress()
 
     File::ManagedHandle decompressedHandle = File::createWriteFile(DECOMPRESSED_BIG_FILE);
 
-    const size_t MAP_COUNT = fat.m_chunksSizes.size() / CHUNKS_PER_MAP_COUNT1;
+    //const size_t MAP_COUNT = fat.m_chunksSizes.size() / CHUNKS_PER_MAP_COUNT1;
 
-    SYSTEM_INFO info;
-    GetSystemInfo(&info);
+    //SYSTEM_INFO info;
+    //GetSystemInfo(&info);
 
-    LARGE_INTEGER offset = { 0 };
+    //LARGE_INTEGER offset = { 0 };
 
-    for (size_t i = 0; i < MAP_COUNT; ++i)
+    //for (size_t i = 0; i < MAP_COUNT; ++i)
+    //{
+    //    /// get the offset and size of view (offset is aligned and size includes zeros)
+    //    size_t viewSize = getViewSize(i, fat.m_chunksSizes);
+    //    LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
+    //    
+
+    //    File::ManagedViewHandle compressedFileView = File::createReadMapViewOfFile(compressedMapping.get(), offset, viewSize);
+
+    //}
+
+
+    //////////////////////////////////////////////////////////////////////////
+    size_t fatIndex = 0;
+    LARGE_INTEGER offset = {0};
+    for (fatIndex; fatIndex + CHUNKS_PER_MAP_COUNT1 < fat.m_chunksSizes.size();)
     {
-        /// get the offset and size of view (offset is aligned and size includes zeros)
-        size_t viewSize = getViewSize(i, fat.m_chunksSizes);
-        ///LARGE_INTEGER offset = getOffset(i, fat.m_chunksSizes);
-        
-
+        /// fatIndex is updated here
+        size_t viewSize = getViewSize1(fatIndex, fat.m_chunksSizes);
         File::ManagedViewHandle compressedFileView = File::createReadMapViewOfFile(compressedMapping.get(), offset, viewSize);
+        offset.QuadPart += viewSize;
+
+
 
     }
+
 
 }
 
