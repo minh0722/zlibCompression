@@ -14,7 +14,7 @@ namespace File
     {
         void writeToFile(LPCWSTR fatFilePath)
         {
-            File::ManagedHandle fatHandle = File::createWriteFile(fatFilePath);
+            ManagedHandle fatHandle = createWriteFile(fatFilePath);
 
             size_t chunksCount = m_chunksSizes.size();
 
@@ -25,7 +25,7 @@ namespace File
 
         void readFromFile(LPCWSTR fatFilePath)
         {
-            File::ManagedHandle fatHandle = File::createReadFile(fatFilePath);
+            ManagedHandle fatHandle = createReadFile(fatFilePath);
 
             //LARGE_INTEGER fileSize = File::fileSize(fatHandle.get());
 

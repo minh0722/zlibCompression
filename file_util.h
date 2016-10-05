@@ -1,8 +1,40 @@
 #pragma once
 #include <Windows.h>
 #include <memory>
+#include <cassert>
 
-namespace File
+namespace
+{
+    size_t align(const size_t num, const size_t alignment)
+    {
+        return ((num + alignment - 1) / alignment) * alignment;
+    }
+
+    size_t alignDown(const size_t num, const size_t alignment)
+    {
+        return (num / alignment) * alignment;
+    }
+
+    LARGE_INTEGER alignDown(const LARGE_INTEGER& size, const size_t alignment)
+    {
+        LARGE_INTEGER newSize;
+        newSize.QuadPart = alignDown(size.QuadPart, alignment);
+
+        return newSize;
+    }
+
+    bool isAligned(const size_t num, const size_t alignment)
+    {
+        return (num / alignment) * alignment == num;
+    }
+
+    bool isAligned(const LARGE_INTEGER& num, const size_t alignment)
+    {
+        return isAligned(num.QuadPart, alignment);
+    }
+}
+
+namespace
 {
     struct FileHandleCloser
     {

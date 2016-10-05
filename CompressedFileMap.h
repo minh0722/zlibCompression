@@ -2,7 +2,7 @@
 #include "file_util.h"
 
 static const size_t PAGE_COUNT = 5;
-static const size_t PAGE_CACHE_SIZE = 640 * 1024;
+static const size_t PAGE_CACHE_SIZE = 64 * 1024 * 1024;
 
 class CompressedFileMap
 {
