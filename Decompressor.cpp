@@ -18,7 +18,7 @@ void Decompressor::decompress(LPCWSTR inputCompressedFilePath, LPCWSTR outputDec
     size_t fatIndex = 0;
     LARGE_INTEGER offset = { 0 };
 
-    while (fatIndex + CHUNKS_PER_MAP_COUNT1 < fat.m_chunksSizes.size())
+    while (fatIndex + CHUNKS_PER_MAP_COUNT < fat.m_chunksSizes.size())
     {
         size_t viewSize = getViewSize(fatIndex, fat.m_chunksSizes);
         uint8_t* compressedFileContent = reinterpret_cast<uint8_t*>(compressedFileMap.readMem(fat.m_chunksSizes[fatIndex], viewSize));
@@ -26,7 +26,7 @@ void Decompressor::decompress(LPCWSTR inputCompressedFilePath, LPCWSTR outputDec
         auto decompressedChunks = decompressChunks(compressedFileContent, fat.m_chunksSizes, fatIndex);
         writeDecompressedChunksToFile(std::move(decompressedChunks), outputDecompressedFilePath);
 
-        fatIndex += CHUNKS_PER_MAP_COUNT1;
+        fatIndex += CHUNKS_PER_MAP_COUNT;
     }
 
     /// decompress the rest unaligned chunks
@@ -102,7 +102,7 @@ std::vector<std::unique_ptr<Chunk>> Decompressor::decompressChunks(uint8_t* comp
 {
     std::vector<std::unique_ptr<Chunk>> decompressedChunks;
 
-    size_t fatEndIndex = (fatStartIndex + CHUNKS_PER_MAP_COUNT1) >= fatChunkSizes.size() ? fatChunkSizes.size() - 1 : fatStartIndex + CHUNKS_PER_MAP_COUNT1;
+    size_t fatEndIndex = (fatStartIndex + CHUNKS_PER_MAP_COUNT) >= fatChunkSizes.size() ? fatChunkSizes.size() - 1 : fatStartIndex + CHUNKS_PER_MAP_COUNT;
 
     decompressedChunks.resize(fatEndIndex - fatStartIndex);
 
@@ -115,7 +115,7 @@ std::vector<std::unique_ptr<Chunk>> Decompressor::decompressChunks(uint8_t* comp
 
         size_t decompressedSize = zlibDecompress(compressedFileContent + offset, mem.get(), compressedChunkSize);
 
-        decompressedChunks[i % CHUNKS_PER_MAP_COUNT1] = std::make_unique<Chunk>(mem.release(), decompressedSize);
+        decompressedChunks[i % CHUNKS_PER_MAP_COUNT] = std::make_unique<Chunk>(mem.release(), decompressedSize);
     });
 
     return decompressedChunks;
@@ -123,7 +123,7 @@ std::vector<std::unique_ptr<Chunk>> Decompressor::decompressChunks(uint8_t* comp
 
 size_t Decompressor::getViewSize(size_t fatIndex, std::vector<size_t>& fatChunksSizes)
 {
-    return fatChunksSizes[fatIndex + CHUNKS_PER_MAP_COUNT1] - fatChunksSizes[fatIndex];
+    return fatChunksSizes[fatIndex + CHUNKS_PER_MAP_COUNT] - fatChunksSizes[fatIndex];
 }
 
 void Decompressor::writeDecompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& decompressedChunks, LPCWSTR filePath)

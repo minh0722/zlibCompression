@@ -15,9 +15,7 @@ void Fat::writeToFile(LPCWSTR fatFilePath)
 void Fat::readFromFile(LPCWSTR fatFilePath)
 {
     ManagedHandle fatHandle = createReadFile(fatFilePath);
-
-    //LARGE_INTEGER fileSize = File::fileSize(fatHandle.get());
-
+    
     size_t chunksCount = 0;
 
     DWORD readCount;

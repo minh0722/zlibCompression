@@ -17,13 +17,15 @@ long long duration;
 int main()
 {
     Compressor compressor;
+    Decompressor decompressor;
 
     CHRONO_BEGIN;
     compressor.compress(BIG_FILE_PATH, COMPRESSED_BIG_FILE);
     CHRONO_END;
 
-    Decompressor decompressor;
+    CHRONO_BEGIN;
     decompressor.decompress(COMPRESSED_BIG_FILE, DECOMPRESSED_BIG_FILE);
+    CHRONO_END;
 
     return 0;
 }

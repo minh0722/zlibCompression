@@ -10,37 +10,37 @@ Compressor::Compressor()
 void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
 {
     /// open input file
-    ManagedHandle bigFile1 = createReadFile(inputFilePath);
+    ManagedHandle bigFile = createReadFile(inputFilePath);
 
     /// align down file size to map size
-    LARGE_INTEGER bigFileSize1 = fileSize(bigFile1.get());
-    LARGE_INTEGER bigFileAlignedSize = alignDown(bigFileSize1, MAP_SIZE1);
+    LARGE_INTEGER bigFileSize = fileSize(bigFile.get());
+    LARGE_INTEGER bigFileAlignedSize = alignDown(bigFileSize, MAP_SIZE);
 
     /// how much map viewing we have to do
-    const size_t MAP_COUNT1 = bigFileAlignedSize.QuadPart / MAP_SIZE1;
+    const size_t MAP_COUNT = bigFileAlignedSize.QuadPart / MAP_SIZE;
 
     /// mapping of the file
-    ManagedHandle fileMapping = createReadFileMapping(bigFile1.get(), 0);
+    ManagedHandle fileMapping = createReadFileMapping(bigFile.get(), 0);
 
     /// contains offsets of the compressed chunks
     Fat fat;
 
-    for (size_t i = 0; i < MAP_COUNT1; ++i)
+    for (size_t i = 0; i < MAP_COUNT; ++i)
     {
         /// the offset to the current map view of the file
         LARGE_INTEGER offset;
-        offset.QuadPart = i * MAP_SIZE1;
+        offset.QuadPart = i * MAP_SIZE;
 
-        ManagedViewHandle mapFile1 = createReadMapViewOfFile(fileMapping.get(), offset, MAP_SIZE1);
+        ManagedViewHandle mapFile = createReadMapViewOfFile(fileMapping.get(), offset, MAP_SIZE);
 
-        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile1.get()), CHUNKS_PER_MAP_COUNT1, PAGE_SIZE);
+        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile.get()), CHUNKS_PER_MAP_COUNT, PAGE_SIZE);
         auto compressedChunks = compressChunks(std::move(chunks));
         writeCompressedChunksToFile(std::move(compressedChunks), outputFilePath);
         getFat(fat, std::move(compressedChunks));
     }
 
     /// now we need to compress the remaining unaligned datas
-    size_t remainingDataInByte = bigFileSize1.QuadPart - bigFileAlignedSize.QuadPart;
+    size_t remainingDataInByte = bigFileSize.QuadPart - bigFileAlignedSize.QuadPart;
 
     if (remainingDataInByte)
     {
@@ -52,7 +52,7 @@ void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
         getFat(fat, std::move(compressedChunks));
     }
 
-    fat.m_fileSize = bigFileSize1.QuadPart;
+    fat.m_fileSize = bigFileSize.QuadPart;
     fat.writeToFile(FAT_FILE_PATH);
 }
 

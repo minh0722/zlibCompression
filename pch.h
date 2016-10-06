@@ -14,8 +14,8 @@ static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.bin";
 static const LPCWSTR DECOMPRESSED_BIG_FILE = L"decompressedBigFile.bin";
 static const size_t PAGE_SIZE = 64 * 1024;
 static const int COMPRESSION_LEVEL = 9;
-static const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
-static const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
+static const size_t CHUNKS_PER_MAP_COUNT = 1024;
+static const size_t MAP_SIZE = PAGE_SIZE * CHUNKS_PER_MAP_COUNT;
 
 namespace
 {
