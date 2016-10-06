@@ -200,7 +200,7 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
         stream.avail_out = PAGE_SIZE;
         stream.next_out = output;
 
-        ret = inflate(&stream, Z_NO_FLUSH);
+        ret = inflate(&stream, Z_FINISH);
         assert(ret != Z_STREAM_ERROR);
 
         switch (ret)
@@ -222,7 +222,7 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
         }
         currentDest = reinterpret_cast<uint8_t*>(currentDest) + have;
 
-    } while (stream.avail_out == 0 || ret != Z_STREAM_END);
+    } while (stream.avail_out == 0);
 
     (void)inflateEnd(&stream);
 
@@ -280,19 +280,6 @@ void writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>&& compresse
         BOOL ret = WriteFile(outputFile.get(), chunkMem, size, &written, nullptr);
         assert(ret == TRUE);
     }
-}
-
-size_t getTotalCompressionSize(std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
-{
-    return std::accumulate(
-        compressedChunks.begin(), 
-        compressedChunks.end(), 
-        0,
-        [](size_t sum, std::unique_ptr<Chunk>& ptr) 
-        {
-            return sum + ptr->chunkSize;
-        }
-    );
 }
 
 void getFat(File::Fat& fat, std::vector<std::unique_ptr<Chunk>>&& compressedChunks)
@@ -400,24 +387,26 @@ void compress()
 
 std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedFileContent, std::vector<size_t>& fatChunkSizes, size_t fatStartIndex)
 {
-    std::vector<std::unique_ptr<Chunk>> decompressedChunks(CHUNKS_PER_MAP_COUNT1);
+    std::vector<std::unique_ptr<Chunk>> decompressedChunks;
 
     size_t fatEndIndex = (fatStartIndex + CHUNKS_PER_MAP_COUNT1) >= fatChunkSizes.size() ? fatChunkSizes.size() - 1 : fatStartIndex + CHUNKS_PER_MAP_COUNT1;
 
-    //concurrency::parallel_for(fatStartIndex, fatEndIndex, [&fatChunkSizes, &decompressedChunks, &compressedFileContent, &fatStartIndex](size_t i)
-    //{
-    for (size_t i = fatStartIndex; i < fatEndIndex; ++i)
+    decompressedChunks.resize(fatEndIndex - fatStartIndex);
+
+    concurrency::parallel_for(fatStartIndex, fatEndIndex, [&fatChunkSizes, &decompressedChunks, &compressedFileContent, &fatStartIndex](size_t i)
     {
+    //for (size_t i = fatStartIndex; i < fatEndIndex; ++i)
+    //{
         unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
 
         size_t compressedChunkSize = fatChunkSizes[i + 1] - fatChunkSizes[i];
         size_t offset = fatChunkSizes[i] - fatChunkSizes[fatStartIndex];
 
         size_t decompressedSize = decompress(compressedFileContent + offset, mem.get(), compressedChunkSize);
-
+        
         decompressedChunks[i % CHUNKS_PER_MAP_COUNT1] = std::make_unique<Chunk>(mem.release(), decompressedSize);
-    }
-    //});
+    //}
+    });
 
     return decompressedChunks;
 }
@@ -472,7 +461,6 @@ void decompress()
         auto decompressedChunks = decompressChunks(compressedFileContent, fat.m_chunksSizes, fatIndex);
         writeDecompressedChunksToFile(std::move(decompressedChunks));
     }
-
 }
 
 int main()
@@ -485,11 +473,9 @@ int main()
 
     return 0;
 
+
     
-    
-    
-    
-    
+/*    
     //////////////////////////////////////////////////////////////////////////
 
     HANDLE bigFile = CreateFile(
@@ -572,4 +558,6 @@ int main()
 
 
     return 0;
+*/
+
 }

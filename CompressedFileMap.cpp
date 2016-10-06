@@ -64,7 +64,7 @@ size_t CompressedFileMap::getCorrectViewSize(HANDLE file, size_t start, size_t p
 
     if (start + pageCacheSize >= sizeOfFile)
     {
-        pageCacheSize = sizeOfFile - start - 1;
+        pageCacheSize = sizeOfFile - start;
     }
     return pageCacheSize;
 }
