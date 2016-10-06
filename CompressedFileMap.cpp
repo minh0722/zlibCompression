@@ -1,25 +1,9 @@
+#include "pch.h"
 #include "CompressedFileMap.h"
 
 CompressedFileMap::CompressedFileMap(LPCWSTR compressedFileName)
     : m_fileName(compressedFileName), m_nextNewPageIndex(0)
 {
-    //ManagedHandle fileHandle = createReadFile(compressedFileName);
-    //ManagedHandle fileMapping = createReadFileMapping(fileHandle.get(), 0);
-    //ManagedViewHandle fileView = createReadMapViewOfFile(fileMapping.get(), { 0 }, PAGE_COUNT * PAGE_CACHE_SIZE);
-    //LONGLONG size = fileSize(fileHandle.get()).QuadPart;
-    //uint8_t* fileContent = reinterpret_cast<uint8_t*>(fileView.get());
-
-    ///// load compressed file content
-    //for (size_t i = 0; i < PAGE_COUNT; ++i)
-    //{
-    //    std::unique_ptr<uint8_t[]> page(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_CACHE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
-    //    memcpy(page.get(), fileContent, PAGE_CACHE_SIZE);
-    //    m_pages[i].m_buffer = ManagedMem(page.release(), MemoryHandle());
-    //    m_pages[i].m_start = i * PAGE_CACHE_SIZE;
-    //    m_pages[i].m_end = m_pages[i].m_start + PAGE_CACHE_SIZE - 1;
-
-    //    fileContent = fileContent + PAGE_CACHE_SIZE;
-    //}
 }
 
 void* CompressedFileMap::readMem(size_t start, size_t size)
@@ -36,7 +20,7 @@ void* CompressedFileMap::readMem(size_t start, size_t size)
         }
     }
 
-    /// we need to map the page that contains start
+    /// map the page that contains start
     ManagedHandle fileHandle = createReadFile(m_fileName);
     ManagedHandle fileMapping = createReadFileMapping(fileHandle.get(), 0);
     size_t alignedStart = alignDown(start, 65536);

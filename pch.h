@@ -1,7 +1,60 @@
 #pragma once
+#include <iostream>
+#include <cstdint>
+#include <chrono>
 #include <Windows.h>
 #include <memory>
 #include <cassert>
+#include <vector>
+#include "zlib.h"
+
+static const LPCTSTR FAT_FILE_PATH = L"compressedFat.fat";
+static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
+static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.forge";
+static const LPCWSTR DECOMPRESSED_BIG_FILE = L"decompressedBigFile.forge";
+static const size_t PAGE_SIZE = 64 * 1024;
+static const int COMPRESSION_LEVEL = 9;
+static const size_t CHUNKS_PER_MAP_COUNT1 = 1024;
+static const size_t MAP_SIZE1 = PAGE_SIZE * CHUNKS_PER_MAP_COUNT1;
+
+namespace
+{
+    void throwIfFailed(int ret)
+    {
+        if (ret != Z_OK)
+            throw std::exception();
+    }
+
+    void throwIfFalse(bool flag)
+    {
+        if (!flag)
+            throw std::exception();
+    }
+
+    struct Chunk
+    {
+        struct Deleter
+        {
+            void operator()(void* ptr)
+            {
+                BOOL ret = VirtualFree(ptr, 0, MEM_RELEASE);
+                throwIfFalse(ret);
+            }
+        };
+
+        Chunk(size_t pageSize) : m_memory(VirtualAlloc(nullptr, pageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE), Deleter()),
+            chunkSize(pageSize)
+        {
+        }
+
+        Chunk(void* m, size_t pageSize) : m_memory(m, Deleter()), chunkSize(pageSize)
+        {
+        }
+
+        std::unique_ptr<void, Deleter> m_memory;
+        size_t chunkSize;
+    };
+}
 
 namespace
 {
@@ -187,5 +240,35 @@ namespace
         ret = SetFilePointerEx(file, { 0 }, nullptr, FILE_BEGIN);
         assert(ret != INVALID_SET_FILE_POINTER);
     }
+}
 
+namespace Creation
+{
+    struct Coord
+    {
+        static uint32_t count;
+
+        Coord()
+        {
+            x = count++;
+            y = count++;
+            z = count++;
+        }
+
+        uint32_t x, y, z;
+    };
+    uint32_t Coord::count = 0;
+
+    void createFile()
+    {
+        FILE* file;
+        fopen_s(&file, reinterpret_cast<const char*>(BIG_FILE_PATH), "a+b");
+
+        Coord* c = new Coord[9000];
+
+        for (int i = 0; i < 10000 * 4; ++i)
+            fwrite(c, sizeof(Coord), 9000, file);
+
+        delete[] c;
+    }
 }
