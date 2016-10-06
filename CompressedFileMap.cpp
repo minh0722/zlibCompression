@@ -1,8 +1,11 @@
 #include "pch.h"
 #include "CompressedFileMap.h"
 
+static const size_t PAGE_COUNT = 5;
+static const size_t PAGE_CACHE_SIZE = 64 * 1024 * 1024;
+
 CompressedFileMap::CompressedFileMap(LPCWSTR compressedFileName)
-    : m_fileName(compressedFileName), m_nextNewPageIndex(0)
+    : m_pages(PAGE_COUNT), m_fileName(compressedFileName), m_nextNewPageIndex(0)
 {
 }
 
@@ -23,6 +26,7 @@ void* CompressedFileMap::readMem(size_t start, size_t size)
     /// map the page that contains start
     ManagedHandle fileHandle = createReadFile(m_fileName);
     ManagedHandle fileMapping = createReadFileMapping(fileHandle.get(), 0);
+
     size_t alignedStart = alignDown(start, 65536);
     size_t viewSize = getCorrectViewSize(fileHandle.get(), alignedStart, PAGE_CACHE_SIZE);
 

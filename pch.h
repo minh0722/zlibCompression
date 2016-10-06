@@ -10,8 +10,8 @@
 
 static const LPCTSTR FAT_FILE_PATH = L"compressedFat.fat";
 static const LPCTSTR BIG_FILE_PATH = L"bigFile.bin";
-static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.forge";
-static const LPCWSTR DECOMPRESSED_BIG_FILE = L"decompressedBigFile.forge";
+static const LPCWSTR COMPRESSED_BIG_FILE = L"compressedBigFile.bin";
+static const LPCWSTR DECOMPRESSED_BIG_FILE = L"decompressedBigFile.bin";
 static const size_t PAGE_SIZE = 64 * 1024;
 static const int COMPRESSION_LEVEL = 9;
 static const size_t CHUNKS_PER_MAP_COUNT1 = 1024;

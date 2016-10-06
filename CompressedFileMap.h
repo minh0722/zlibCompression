@@ -1,9 +1,6 @@
 #pragma once
 #include "pch.h"
 
-static const size_t PAGE_COUNT = 5;
-static const size_t PAGE_CACHE_SIZE = 64 * 1024 * 1024;
-
 class CompressedFileMap
 {
     struct MemoryHandle
@@ -34,7 +31,7 @@ private:
     /* assure that we don't read past the end of file */
     size_t getCorrectViewSize(HANDLE file, size_t start, size_t size);
 
-    Page m_pages[PAGE_COUNT];
+    std::vector<Page> m_pages;
     LPCWSTR m_fileName;
     size_t m_nextNewPageIndex;
 };

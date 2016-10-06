@@ -18,12 +18,12 @@ int main()
 {
     Compressor compressor;
 
-    //CHRONO_BEGIN;
-    //compressor.compress(BIG_FILE_PATH, COMPRESSED_BIG_FILE);
-    //CHRONO_END;
+    CHRONO_BEGIN;
+    compressor.compress(BIG_FILE_PATH, COMPRESSED_BIG_FILE);
+    CHRONO_END;
 
     Decompressor decompressor;
-    //decompressor.decompress(COMPRESSED_BIG_FILE, DECOMPRESSED_BIG_FILE);
+    decompressor.decompress(COMPRESSED_BIG_FILE, DECOMPRESSED_BIG_FILE);
 
     return 0;
 }
