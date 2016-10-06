@@ -11,9 +11,9 @@ public:
     void compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath);
 
 private:
-    uint32_t zlibCompress(void* source, void* dest, size_t sourceBytesCount);
+    size_t zlibCompress(void* source, void* dest, size_t sourceBytesCount);
 
-    std::vector<std::unique_ptr<Chunk>> splitFile(uint8_t* fileContent, uint32_t pageCount, size_t pageSize);
+    std::vector<std::unique_ptr<Chunk>> splitFile(uint8_t* fileContent, size_t pageCount, size_t pageSize);
 
     std::vector<std::unique_ptr<Chunk>> compressChunks(std::vector<std::unique_ptr<Chunk>>&& chunks);
 

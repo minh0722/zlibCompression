@@ -16,9 +16,8 @@ void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
     LARGE_INTEGER bigFileSize1 = fileSize(bigFile1.get());
     LARGE_INTEGER bigFileAlignedSize = alignDown(bigFileSize1, MAP_SIZE1);
 
-    /// how much map viewing we have to do and total number of chunks
+    /// how much map viewing we have to do
     const size_t MAP_COUNT1 = bigFileAlignedSize.QuadPart / MAP_SIZE1;
-    const size_t TOTAL_CHUNKS_COUNT = bigFileAlignedSize.QuadPart / PAGE_SIZE;
 
     /// mapping of the file
     ManagedHandle fileMapping = createReadFileMapping(bigFile1.get(), 0);
@@ -57,7 +56,7 @@ void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
     fat.writeToFile(FAT_FILE_PATH);
 }
 
-uint32_t Compressor::zlibCompress(void* source, void* dest, size_t sourceBytesCount)
+size_t Compressor::zlibCompress(void* source, void* dest, size_t sourceBytesCount)
 {
     int ret, flush;
     unsigned have;
@@ -73,7 +72,7 @@ uint32_t Compressor::zlibCompress(void* source, void* dest, size_t sourceBytesCo
     assert(ret == Z_OK);
 
     flush = Z_FINISH;
-    stream.avail_in = sourceBytesCount;
+    stream.avail_in = static_cast<uInt>(sourceBytesCount);
     stream.next_in = reinterpret_cast<Bytef*>(source);
 
     do
@@ -102,11 +101,11 @@ uint32_t Compressor::zlibCompress(void* source, void* dest, size_t sourceBytesCo
     (void)deflateEnd(&stream);
 
     /// return the size of the compressed data
-    uint32_t compressedSize = reinterpret_cast<uint8_t*>(currentDest) - reinterpret_cast<uint8_t*>(dest);
+    uintptr_t compressedSize = reinterpret_cast<uintptr_t>(currentDest) - reinterpret_cast<uintptr_t>(dest);
     return compressedSize;
 }
 
-std::vector<std::unique_ptr<Chunk>> Compressor::splitFile(uint8_t* fileContent, uint32_t pageCount, size_t pageSize)
+std::vector<std::unique_ptr<Chunk>> Compressor::splitFile(uint8_t* fileContent, size_t pageCount, size_t pageSize)
 {
     std::vector<std::unique_ptr<Chunk>> result;
 
@@ -151,7 +150,7 @@ void Compressor::writeCompressedChunksToFile(std::vector<std::unique_ptr<Chunk>>
         size_t size = compressedChunks[i]->chunkSize;
 
         DWORD written;
-        BOOL ret = WriteFile(outputFile.get(), chunkMem, size, &written, nullptr);
+        BOOL ret = WriteFile(outputFile.get(), chunkMem, static_cast<DWORD>(size), &written, nullptr);
         assert(ret == TRUE);
     }
 }
