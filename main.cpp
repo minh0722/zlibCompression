@@ -117,14 +117,6 @@ struct Chunk
     size_t chunkSize;
 };
 
-LARGE_INTEGER getCountToAlignment(const LARGE_INTEGER& num, const size_t alignment)
-{
-    LARGE_INTEGER count = { 0 };
-    count.QuadPart = align(num.QuadPart, alignment) - num.QuadPart;
-
-    return count;
-}
-
 uint32_t compress(void* source, void* dest, size_t sourceBytesCount)
 {
     int ret, flush;
