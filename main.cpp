@@ -200,7 +200,7 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
         stream.avail_out = PAGE_SIZE;
         stream.next_out = output;
 
-        ret = inflate(&stream, Z_FINISH);
+        ret = inflate(&stream, Z_NO_FLUSH);
         assert(ret != Z_STREAM_ERROR);
 
         switch (ret)
@@ -222,7 +222,7 @@ uint32_t decompress(void* source, void* dest, size_t sourceBytesCount)
         }
         currentDest = reinterpret_cast<uint8_t*>(currentDest) + have;
 
-    } while (stream.avail_out == 0);
+    } while (stream.avail_out == 0 || ret != Z_STREAM_END);
 
     (void)inflateEnd(&stream);
 
@@ -477,9 +477,9 @@ void decompress()
 
 int main()
 {
-    //CHRONO_BEGIN;
-    //compress();
-    //CHRONO_END;
+    CHRONO_BEGIN;
+    compress();
+    CHRONO_END;
 
     decompress();
 
