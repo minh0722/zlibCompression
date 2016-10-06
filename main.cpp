@@ -330,13 +330,6 @@ std::vector<std::unique_ptr<Chunk>> splitLastUnalignedBytes(void* mapViewOfLastC
 
 void compress()
 {
-    /*
-    Create a mapping of the file.
-    First we create a map view of size map-size-aligned and compress them.
-    Then create map view starting from the beginning of the trail datas
-    that are after the aligned chunks
-    */
-
     /// open input file
     ManagedHandle bigFile1 = createReadFile(BIG_FILE_PATH);
 
@@ -395,8 +388,6 @@ std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedFileCont
 
     concurrency::parallel_for(fatStartIndex, fatEndIndex, [&fatChunkSizes, &decompressedChunks, &compressedFileContent, &fatStartIndex](size_t i)
     {
-    //for (size_t i = fatStartIndex; i < fatEndIndex; ++i)
-    //{
         unique_ptr<uint8_t[]> mem(reinterpret_cast<uint8_t*>(VirtualAlloc(nullptr, PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)));
 
         size_t compressedChunkSize = fatChunkSizes[i + 1] - fatChunkSizes[i];
@@ -405,7 +396,6 @@ std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedFileCont
         size_t decompressedSize = decompress(compressedFileContent + offset, mem.get(), compressedChunkSize);
         
         decompressedChunks[i % CHUNKS_PER_MAP_COUNT1] = std::make_unique<Chunk>(mem.release(), decompressedSize);
-    //}
     });
 
     return decompressedChunks;
@@ -472,92 +462,4 @@ int main()
     decompress();
 
     return 0;
-
-
-    
-/*    
-    //////////////////////////////////////////////////////////////////////////
-
-    HANDLE bigFile = CreateFile(
-        BIG_FILE_PATH,
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
-        nullptr,
-        OPEN_ALWAYS,            /// open file if exist, else create new
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    assert(bigFile != INVALID_HANDLE_VALUE);
-    
-    LARGE_INTEGER bigFileSize;
-    GetFileSizeEx(bigFile, &bigFileSize);
-
-
-    const size_t CHUNKS_PER_MAP_COUNT = 1024;
-    const size_t MAP_SIZE = PAGE_SIZE * CHUNKS_PER_MAP_COUNT;
-    const size_t MAP_COUNT = bigFileSize.QuadPart / MAP_SIZE;   /// 64
-        
-    //CHRONO_BEGIN;
-
-    for (size_t i = 0; i < MAP_COUNT; ++i)
-    {
-        /// the offset to the current mapping of the file
-        LARGE_INTEGER offset;
-        offset.QuadPart = i * MAP_SIZE;
-
-        HANDLE fileMap = CreateFileMapping(bigFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
-        LPVOID mapFile = MapViewOfFile(fileMap, FILE_MAP_READ, offset.HighPart, offset.LowPart, MAP_SIZE);
-        assert(mapFile != nullptr);
-
-        auto chunks = splitFile(reinterpret_cast<uint8_t*>(mapFile), CHUNKS_PER_MAP_COUNT, PAGE_SIZE);
-        auto compressedChunks = compressChunks(std::move(chunks));
-        writeCompressedChunksToFile(std::move(compressedChunks));
-
-
-        CloseHandle(fileMap);
-        UnmapViewOfFile(mapFile);
-    }
-    
-    //CHRONO_END;
-
-    CloseHandle(bigFile);
-    
-
-    ///// decompress
-    //HANDLE decompressedBigFile = CreateFile(
-    //    COMPRESSED_BIG_FILE,
-    //    GENERIC_WRITE,
-    //    0,
-    //    nullptr,
-    //    OPEN_ALWAYS,
-    //    FILE_ATTRIBUTE_NORMAL,
-    //    nullptr);
-    //assert(decompressedBigFile != INVALID_HANDLE_VALUE);
-
-    //LARGE_INTEGER decompressedFileSize;
-    //GetFileSizeEx(decompressedBigFile, &decompressedFileSize);
-
-
-
-    //std::vector<std::unique_ptr<Chunk>> chunks = splitFiles(reinterpret_cast<uint8_t*>(mapFile), 10);
-    //std::vector<std::unique_ptr<Chunk>> compressedChunks = compressChunks(std::move(chunks));
-    //std::vector<std::unique_ptr<Chunk>> decompressedChunks = decompressChunks(std::move(compressedChunks));
-    //
-    //for (size_t i = 0; i < chunks.size(); ++i)
-    //{
-    //    char* beforeCompress = reinterpret_cast<char*>(chunks[i]->m_memory.get());
-    //    char* afterCompress = reinterpret_cast<char*>(decompressedChunks[i]->m_memory.get());
-    //    size_t len = PAGE_SIZE;
-    //
-    //    assert(strncmp(beforeCompress, afterCompress, len) == 0);
-    //}
-    //
-    //UnmapViewOfFile(mapFile);
-    //CloseHandle(fileMap);
-    //CloseHandle(inputFile);
-
-
-
-    return 0;
-*/
-
 }
