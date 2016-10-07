@@ -1,7 +1,7 @@
 #include "pch.h"
-#include <ppl.h>
-#include "Compressor.h"
 #include "Fat.h"
+#include "Compressor.h"
+#include <ppl.h>
 
 Compressor::Compressor()
 {
@@ -11,6 +11,7 @@ void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
 {
     /// open input file
     ManagedHandle bigFile = createReadFile(inputFilePath);
+    ManagedHandle fileMapping = createReadFileMapping(bigFile.get(), 0);
 
     /// align down file size to map size
     LARGE_INTEGER bigFileSize = fileSize(bigFile.get());
@@ -18,9 +19,6 @@ void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
 
     /// how much map viewing we have to do
     const size_t MAP_COUNT = bigFileAlignedSize.QuadPart / MAP_SIZE;
-
-    /// mapping of the file
-    ManagedHandle fileMapping = createReadFileMapping(bigFile.get(), 0);
 
     /// contains offsets of the compressed chunks
     Fat fat;
@@ -39,7 +37,7 @@ void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
         getFat(fat, std::move(compressedChunks));
     }
 
-    /// now we need to compress the remaining unaligned datas
+    /// now we compress the remaining unaligned datas
     size_t remainingDataInByte = bigFileSize.QuadPart - bigFileAlignedSize.QuadPart;
 
     if (remainingDataInByte)
@@ -56,7 +54,7 @@ void Compressor::compress(LPCWSTR inputFilePath, LPCWSTR outputFilePath)
     fat.writeToFile(FAT_FILE_PATH);
 }
 
-size_t Compressor::zlibCompress(void* source, void* dest, size_t sourceBytesCount)
+size_t Compressor::zlibCompress(const void* source, void* dest, size_t sourceBytesCount)
 {
     int ret, flush;
     unsigned have;
@@ -73,7 +71,7 @@ size_t Compressor::zlibCompress(void* source, void* dest, size_t sourceBytesCoun
 
     flush = Z_FINISH;
     stream.avail_in = static_cast<uInt>(sourceBytesCount);
-    stream.next_in = reinterpret_cast<Bytef*>(source);
+    stream.next_in = reinterpret_cast<Bytef*>(const_cast<void*>(source));
 
     do
     {

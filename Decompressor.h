@@ -9,7 +9,7 @@ public:
     void decompress(LPCWSTR inputCompressedFilePath, LPCWSTR outputDecompressedFilePath);
 
 private:
-    uint32_t zlibDecompress(void* source, void* dest, size_t sourceBytesCount);
+    size_t zlibDecompress(void* source, void* dest, size_t sourceBytesCount);
 
     std::vector<std::unique_ptr<Chunk>> decompressChunks(uint8_t* compressedFileContent, std::vector<size_t>& fatChunkSizes, size_t fatStartIndex);
 

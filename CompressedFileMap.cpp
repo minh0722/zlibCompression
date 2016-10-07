@@ -2,7 +2,7 @@
 #include "CompressedFileMap.h"
 
 static const size_t PAGE_COUNT = 5;
-static const size_t PAGE_CACHE_SIZE = 64 * 1024 * 1024;
+static const size_t PAGE_CACHE_SIZE = 64 * 1024 * 100;
 
 CompressedFileMap::CompressedFileMap(LPCWSTR compressedFileName)
     : m_pages(PAGE_COUNT), m_fileName(compressedFileName), m_nextNewPageIndex(0)
@@ -46,13 +46,14 @@ void* CompressedFileMap::readMem(size_t start, size_t size)
     return result;
 }
 
-size_t CompressedFileMap::getCorrectViewSize(HANDLE file, size_t start, size_t pageCacheSize)
+size_t CompressedFileMap::getCorrectViewSize(HANDLE file, size_t start, size_t viewSize)
 {
     size_t sizeOfFile = fileSize(file).QuadPart;
 
-    if (start + pageCacheSize >= sizeOfFile)
+    if (start + viewSize >= sizeOfFile)
     {
-        pageCacheSize = sizeOfFile - start;
+        viewSize = sizeOfFile - start;
     }
-    return pageCacheSize;
+
+    return viewSize;
 }

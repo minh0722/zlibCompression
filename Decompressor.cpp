@@ -1,7 +1,7 @@
 #include "pch.h"
 #include "Decompressor.h"
-#include "Fat.h"
 #include "CompressedFileMap.h"
+#include "Fat.h"
 #include <ppl.h>
 
 Decompressor::Decompressor()
@@ -40,7 +40,7 @@ void Decompressor::decompress(LPCWSTR inputCompressedFilePath, LPCWSTR outputDec
     }
 }
 
-uint32_t Decompressor::zlibDecompress(void* source, void* dest, size_t sourceBytesCount)
+size_t Decompressor::zlibDecompress(void* source, void* dest, size_t sourceBytesCount)
 {
     int ret;
     unsigned have;
@@ -58,7 +58,7 @@ uint32_t Decompressor::zlibDecompress(void* source, void* dest, size_t sourceByt
     ret = inflateInit(&stream);
     assert(ret == Z_OK);
 
-    stream.avail_in = sourceBytesCount;
+    stream.avail_in = static_cast<uInt>(sourceBytesCount);
     stream.next_in = reinterpret_cast<Bytef*>(source);
 
     do
@@ -68,7 +68,7 @@ uint32_t Decompressor::zlibDecompress(void* source, void* dest, size_t sourceByt
 
         ret = inflate(&stream, Z_FINISH);
         assert(ret != Z_STREAM_ERROR);
-
+        
         switch (ret)
         {
         case Z_NEED_DICT:
@@ -94,7 +94,7 @@ uint32_t Decompressor::zlibDecompress(void* source, void* dest, size_t sourceByt
 
     assert(ret == Z_STREAM_END);
 
-    uint32_t decompressedSize = reinterpret_cast<uint8_t*>(currentDest) - reinterpret_cast<uint8_t*>(dest);
+    size_t decompressedSize = reinterpret_cast<uintptr_t>(currentDest) - reinterpret_cast<uintptr_t>(dest);
     return decompressedSize;
 }
 
@@ -133,7 +133,7 @@ void Decompressor::writeDecompressedChunksToFile(std::vector<std::unique_ptr<Chu
     for (size_t i = 0; i < decompressedChunks.size(); ++i)
     {
         uint8_t* chunkMem = reinterpret_cast<uint8_t*>(decompressedChunks[i]->m_memory.get());
-        size_t size = decompressedChunks[i]->chunkSize;
+        DWORD size = static_cast<DWORD>(decompressedChunks[i]->chunkSize);
 
         DWORD written;
         BOOL ret = WriteFile(outputFile.get(), chunkMem, size, &written, nullptr);
